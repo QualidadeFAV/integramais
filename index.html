@@ -182,6 +182,8 @@
         .card.animate-in { 
             animation: fadeInUpStaggered 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) backwards; 
         }
+        /* Classe para DESATIVAR animação no update silencioso */
+        .card.no-anim { animation: none !important; }
 
         .card:hover { transform: translateY(-5px) scale(1.01) translateZ(0); box-shadow: 0 20px 25px -5px rgba(15, 76, 129, 0.1), 0 10px 10px -5px rgba(15, 76, 129, 0.04); border-color: rgba(15, 76, 129, 0.25); z-index: 15; }
         .card.is-late { background: #fff5f5; border: 1px solid #fecaca; }
