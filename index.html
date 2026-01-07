@@ -10,6 +10,7 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
     <style>
+        /* --- CSS GERAL --- */
         :root {
             --primary: #0f4c81; --primary-dark: #0a355c; --primary-soft: #e6f0fa; --bg-body: #f8fafc;
             --white: #ffffff; --text-main: #1e293b; --text-light: #64748b;
@@ -83,14 +84,13 @@
         .btn-main-add span { transition: transform 0.4s ease; }
         .btn-main-add:hover span { transform: rotate(90deg) scale(1.1); }
 
-        /* --- FILTROS CUSTOMIZADOS --- */
         .filter-container { 
             max-width: 1200px; margin: 25px auto 0 auto; padding: 12px 20px; 
             display: flex; gap: 15px; align-items: center; flex-wrap: wrap; 
             background: rgba(255, 255, 255, 0.6); backdrop-filter: blur(10px);
             border-radius: 20px; border: 1px solid rgba(255,255,255,0.8);
             box-shadow: 0 8px 30px rgba(0,0,0,0.02);
-            position: relative; z-index: 40; /* Garante que fique sobre os cards */
+            position: relative; z-index: 40; 
         }
         
         .custom-dropdown { position: relative; min-width: 180px; flex: 1; max-width: 240px; font-family: 'Inter', sans-serif; }
@@ -148,12 +148,10 @@
         .grid { 
             display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px; 
             max-width: 1200px; margin: 20px auto; padding: 0 20px; min-height: 300px; align-items: start;
-            /* Transição suave de opacidade e posição */
             transition: opacity 0.25s ease, transform 0.25s ease;
             opacity: 1;
             transform: translateY(0);
         }
-        /* Classe para esconder o grid durante a filtragem */
         .grid.hidden-transition {
             opacity: 0;
             transform: translateY(10px);
@@ -161,6 +159,13 @@
         }
 
         .empty-state { grid-column: 1 / -1; text-align: center; padding: 80px 20px; color: var(--text-light); animation: fadeInUp 0.5s ease; }
+        
+        /* --- ANIMAÇÃO DOS CARDS --- */
+        @keyframes fadeInUpStaggered {
+            from { opacity: 0; transform: translateY(20px) translateZ(0); }
+            to { opacity: 1; transform: translateY(0) translateZ(0); }
+        }
+
         .card { 
             background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%); 
             border-radius: 16px; padding: 0; border: 1px solid #e2e8f0; 
@@ -169,8 +174,15 @@
             position: relative; cursor: pointer; display: flex; flex-direction: column; overflow: hidden; 
             transform: translateZ(0); backface-visibility: hidden; will-change: transform, box-shadow;
             z-index: 10; 
+            /* Estado inicial invisível para a animação funcionar */
+            opacity: 1; 
         }
-        .card.animate-in { animation: fadeInUp 0.5s ease-out backwards; }
+        
+        /* Classe ativada apenas no filtro/load */
+        .card.animate-in { 
+            animation: fadeInUpStaggered 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) backwards; 
+        }
+
         .card:hover { transform: translateY(-5px) scale(1.01) translateZ(0); box-shadow: 0 20px 25px -5px rgba(15, 76, 129, 0.1), 0 10px 10px -5px rgba(15, 76, 129, 0.04); border-color: rgba(15, 76, 129, 0.25); z-index: 15; }
         .card.is-late { background: #fff5f5; border: 1px solid #fecaca; }
         .card.is-late:hover { border-color: #fca5a5; }
@@ -232,8 +244,6 @@
         .styled-textarea { resize: vertical; min-height: 120px; border-radius: 8px; border: 2px solid transparent; background: #f1f5f9; }
         .styled-textarea:focus { border-color: var(--primary); }
         
-        #inpResp { text-align: center; }
-
         .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
         .date-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 5px; }
         .date-input-wrapper { background: #f1f5f9; border-radius: 8px; padding: 10px 15px; display: flex; flex-direction: column; transition: 0.3s; border: 1px solid transparent; }
@@ -241,19 +251,97 @@
         .date-label { font-size: 0.65rem; font-weight: 700; text-transform: uppercase; color: var(--text-light); margin-bottom: 4px; }
         .date-input-clean { background: transparent; border: none; font-family: 'Inter'; font-weight: 600; font-size: 0.9rem; width: 100%; color: var(--text-main); cursor: pointer; }
         
-        #modalAvatarList { justify-content: center; min-height: 130px; }
+        /* --- ESTILOS DO MODAL DE AVATARES (GRID SOBREPOSTO) --- */
+        #modalAvatarList { 
+            display: flex; 
+            flex-wrap: wrap; 
+            justify-content: center; 
+            align-items: center;
+            padding: 20px 10px; 
+            width: 100%;
+            min-height: 160px;
+            margin: 0 auto;
+        }
+
+        /* Container do Avatar + Tooltip */
+        .avatar-wrapper {
+            position: relative;
+            z-index: 1;
+            transition: transform 0.3s ease-out, margin 0.3s ease-out;
+            margin: 10px; 
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+
+        /* O Círculo da Foto */
         .modal-avatar-big { 
-            width: 130px; height: 130px; border-radius: 50%; overflow: hidden; border: 4px solid white; 
-            box-shadow: 0 4px 15px rgba(0,0,0,0.15); object-fit: cover; transition: 0.3s;
+            width: 110px; height: 110px; 
+            border-radius: 50%; 
+            aspect-ratio: 1 / 1;
+            overflow: hidden; 
+            border: 2px solid white; 
+            box-shadow: 0 4px 10px rgba(0,0,0,0.15); 
+            object-fit: cover; 
             display: flex; align-items: center; justify-content: center;
-            color: white; font-size: 3rem; font-weight: 800; text-transform: uppercase;
+            color: white; font-size: 2.5rem; font-weight: 800; text-transform: uppercase;
             background-color: #cbd5e1; 
             image-rendering: -webkit-optimize-contrast;
+            transition: box-shadow 0.3s ease-out;
         }
-        .modal-avatar-big.animate-in { animation: popIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
-        .modal-avatar-big.removing { animation: scaleOut 0.3s forwards; }
+
+        /* --- TOOLTIP --- */
+        .avatar-wrapper::after {
+            content: attr(data-name);
+            position: absolute;
+            bottom: -35px; left: 50%;
+            transform: translateX(-50%) translateY(-10px);
+            background: rgba(30, 41, 59, 0.95); color: white;
+            padding: 5px 12px; border-radius: 50px;
+            font-size: 0.75rem; font-weight: 700;
+            white-space: nowrap; opacity: 0; visibility: hidden;
+            transition: all 0.2s ease; pointer-events: none;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.15); z-index: 200;
+        }
+
+        .avatar-wrapper:hover::after { opacity: 1; visibility: visible; transform: translateX(-50%) translateY(0); }
+        .avatar-wrapper:hover { transform: scale(1.1); z-index: 100; }
+        .avatar-wrapper:hover .modal-avatar-big { box-shadow: 0 15px 30px rgba(0,0,0,0.2); }
+
+        /* --- MODO "BARALHO" (3 ou mais pessoas) --- */
+        #modalAvatarList.stacked { max-width: 320px; padding-left: 30px; }
+        #modalAvatarList.stacked .avatar-wrapper { margin: 5px 0; margin-left: -40px; }
+        #modalAvatarList.stacked .avatar-wrapper:hover { transform: translateY(-10px) scale(1.1); }
+
+        .animate-in { animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+        .removing { animation: scaleOut 0.3s forwards; }
         @keyframes popIn { from { transform: scale(0); opacity: 0; } to { transform: scale(1); opacity: 1; } }
         @keyframes scaleOut { from { transform: scale(1); opacity: 1; } to { transform: scale(0); opacity: 0; } }
+
+        /* --- INPUT NORMAL --- */
+        #inpResp {
+            resize: none;
+            overflow: hidden;
+            min-height: 50px; 
+            line-height: 1.5;
+            white-space: pre-wrap;
+            text-align: left; 
+            padding-left: 15px;
+            padding-top: 10px;
+        }
+
+        /* --- MODAL DE LISTA DE NOMES --- */
+        #modalNomes .modal-body { display: block; overflow-y: auto; max-height: 70vh; padding: 0; }
+        .name-list-item { 
+            padding: 12px 20px; border-bottom: 1px solid #e2e8f0; 
+            cursor: pointer; font-weight: 500; font-size: 0.9rem; color: var(--text-main);
+            display: flex; align-items: center; justify-content: space-between;
+            transition: 0.2s;
+        }
+        .name-list-item:hover { background: #f0f9ff; color: var(--primary); }
+        .name-list-item:active { background: #e0f2fe; }
+        
+        /* SCROLL BLEED FIX */
+        #namesListContainer { overscroll-behavior: contain; }
 
         .timeline { margin-top: 15px; padding-left: 20px; position: relative; }
         .timeline::before { content: ''; position: absolute; left: 6px; top: 10px; bottom: 0; width: 2px; border-left: 2px dashed #cbd5e1; z-index: 0; }
@@ -358,6 +446,7 @@
         </div>
         <div class="header-actions">
             <div class="search-wrapper"><input type="text" class="search-input" placeholder="Pesquisar..." onkeyup="filtrarCards(this.value)"><div class="search-icon-bg"><span class="material-icons-round">search</span></div></div>
+            <button class="btn-toggle-stats" onclick="abrirModalNomes()" id="btnNomes"><span class="material-icons-round">people</span>Nomes</button>
             <button class="btn-toggle-stats" onclick="toggleStats(event)" id="btnStats"><span class="material-icons-round">bar_chart</span><span style="font-size:0.9rem">Estatísticas</span></button>
             <button class="btn-main-add" onclick="abrirModal(null, event)"><span class="material-icons-round">add_circle</span></button>
         </div>
@@ -373,7 +462,6 @@
     </div>
 
     <div class="filter-container">
-        
         <div class="custom-dropdown" id="dd-status">
             <input type="hidden" id="filtro-status" value="todos">
             <div class="dropdown-btn" onclick="toggleDropdown('dd-status')">
@@ -387,7 +475,6 @@
                 <div class="dropdown-item" onclick="selectFilter('status', 'concluido', 'Concluídos', this)">Concluídos</div>
             </div>
         </div>
-
         <div class="custom-dropdown" id="dd-prio">
             <input type="hidden" id="filtro-prioridade" value="todos">
             <div class="dropdown-btn" onclick="toggleDropdown('dd-prio')">
@@ -401,27 +488,22 @@
                 <div class="dropdown-item" onclick="selectFilter('prioridade', 'baixa', 'Baixa', this)">Baixa</div>
             </div>
         </div>
-
         <div class="custom-dropdown" id="dd-unidade">
             <input type="hidden" id="filtro-unidade" value="todos">
             <div class="dropdown-btn" onclick="toggleDropdown('dd-unidade')">
                 <div class="btn-content"><span class="material-icons-round btn-icon">location_on</span><span class="label-text" id="lbl-unidade">Unidade: Todas</span></div>
                 <span class="material-icons-round arrow-icon">expand_more</span>
             </div>
-            <div class="dropdown-options" id="list-unidade">
-                </div>
+            <div class="dropdown-options" id="list-unidade"></div>
         </div>
-
         <div class="custom-dropdown" id="dd-origem">
             <input type="hidden" id="filtro-origem" value="todos">
             <div class="dropdown-btn" onclick="toggleDropdown('dd-origem')">
                 <div class="btn-content"><span class="material-icons-round btn-icon">source</span><span class="label-text" id="lbl-origem">Origem: Todas</span></div>
                 <span class="material-icons-round arrow-icon">expand_more</span>
             </div>
-            <div class="dropdown-options" id="list-origem">
-                </div>
+            <div class="dropdown-options" id="list-origem"></div>
         </div>
-
         <button id="btn-limpar" class="btn-clear-filters" onclick="limparFiltros()">Limpar Filtros &times;</button>
     </div>
 
@@ -438,8 +520,8 @@
                 <div class="col-left">
                     <div class="inner-card highlight-section">
                         <span class="section-label" style="justify-content: center;">Responsáveis (Envolvidos)</span>
-                        <div id="modalAvatarList" style="display:flex; gap:10px; margin-bottom:10px; flex-wrap:wrap;"></div>
-                        <input type="text" id="inpResp" class="styled-input" placeholder="Digite nome e sobrenome..." style="border-radius:8px; background:white;" onkeyup="debounceAtualizarAvatars(this.value)">
+                        <div id="modalAvatarList"></div>
+                        <textarea id="inpResp" class="styled-input" placeholder="Digite nome e sobrenome (separe por vírgula)..." rows="1" oninput="autoResize(this); gerenciarInputResponsavel(this)"></textarea>
                     </div>
 
                     <div class="inner-card">
@@ -509,6 +591,21 @@
         </div>
     </div>
 
+    <div class="modal-overlay" id="modalNomes" style="z-index: 200;">
+        <div class="modal-wide" style="max-width: 500px; height: auto; max-height: 80vh;">
+            <div class="modal-top">
+                <h3 style="margin:0; font-family:'Montserrat',sans-serif; color:var(--primary);">Banco de Nomes</h3>
+                <button class="close-btn" onclick="fecharModalNomes()"><span class="material-icons-round">close</span></button>
+            </div>
+            <div class="modal-body" style="display:block; padding:0;">
+                <div id="namesListContainer" style="padding: 0; overflow-y: auto; max-height: 60vh;"></div>
+            </div>
+            <div style="padding:15px; text-align:center; font-size:0.8rem; color:var(--text-light); border-top:1px solid var(--border-light);">
+                Clique em um nome para copiar.
+            </div>
+        </div>
+    </div>
+
     <div class="modal-overlay" id="deleteModal" style="z-index:110">
         <div class="confirm-box">
             <div class="confirm-icon"><span class="material-icons-round" style="font-size:30px">delete_forever</span></div>
@@ -538,15 +635,18 @@
 
    <script>
         const API_URL = "https://script.google.com/macros/s/AKfycbyA8a8PaPz7T4lkx6NlQfeX1iWiNi9OywZKQO-Y_hUaNzrZF5_66ptDHCA-l9_IFeKc/exec"; 
+        const API_TOKEN = "fav-2026-seguro-123"; 
         
         let tasks = []; let tempSteps = [];
         let newFiles = []; let keptExistingAttachments = []; let filesToDelete = [];
-        let editingStepIndex = -1; let draggedItemIndex = null;
-        let termoBusca = ""; let isStatsOpen = false;
+        let editingStepIndex = -1; 
+        let termoBusca = ""; 
+        let isStatsOpen = false;
         let attachmentToDeleteIndex = -1;
         let photoCache = {};
         let debounceTimer;
         let buscandoAgora = new Set();
+        let dbNomes = {}; 
 
         Chart.defaults.font.family = 'Montserrat'; 
         Chart.defaults.color = '#64748b';
@@ -557,22 +657,20 @@
         const deleteModal = document.getElementById('deleteModal'); 
         const attachmentDeleteModal = document.getElementById('attachmentDeleteModal');
         const alertModal = document.getElementById('alertModal');
-        const timelineList = document.getElementById('timelineList'); const btnAddStep = document.getElementById('btnAddStepBtn'); const statsPanel = document.getElementById('statsPanel'); const btnStats = document.getElementById('btnStats'); const loadingOverlay = document.getElementById('loading-overlay'); const fileInput = document.getElementById('inpFiles');
+        const timelineList = document.getElementById('timelineList'); 
+        const btnAddStep = document.getElementById('btnAddStepBtn'); 
+        const statsPanel = document.getElementById('statsPanel'); 
+        const btnStats = document.getElementById('btnStats'); 
+        const loadingOverlay = document.getElementById('loading-overlay'); 
+        const fileInput = document.getElementById('inpFiles');
 
-        /* LÓGICA DO DROPDOWN CUSTOMIZADO */
+        // --- FUNÇÕES DE INTERFACE ---
         function toggleDropdown(id) {
             const el = document.getElementById(id);
             const overlay = document.getElementById('clickOverlay');
-            // Fecha outros abertos
             document.querySelectorAll('.custom-dropdown').forEach(d => { if(d.id !== id) d.classList.remove('active'); });
-            
-            if (el.classList.contains('active')) {
-                el.classList.remove('active');
-                overlay.classList.remove('active');
-            } else {
-                el.classList.add('active');
-                overlay.classList.add('active');
-            }
+            if (el.classList.contains('active')) { el.classList.remove('active'); overlay.classList.remove('active'); } 
+            else { el.classList.add('active'); overlay.classList.add('active'); }
         }
 
         function closeAllDropdowns() {
@@ -582,25 +680,15 @@
 
         function selectFilter(type, value, label, item) {
             document.getElementById('filtro-'+type).value = value;
-            
-            // Atualiza Label do Botão
-            let iconMap = { 'status': 'view_kanban', 'prioridade': 'flag', 'unidade': 'location_on', 'origem': 'source' };
-            const icon = iconMap[type] || 'filter_alt';
-            
-            // Atualiza texto do botão
             const btnLabel = document.getElementById('lbl-'+type);
             if(btnLabel) btnLabel.innerText = label;
-
-            // Atualiza classe Selected
             const container = document.getElementById('dd-'+type);
             const options = container.querySelectorAll('.dropdown-item');
             options.forEach(op => op.classList.remove('selected'));
             item.classList.add('selected');
-
             closeAllDropdowns();
             aplicarFiltros();
         }
-        /* FIM LÓGICA DROPDOWN */
 
         function formatarData(isoStr) {
             if (!isoStr) return "";
@@ -622,17 +710,27 @@
         function dataParaPlanilha(inpStr) { return inpStr || ""; }
 
         function formatarNomeProprio(texto) {
-            if (!texto) return "";
+            if (!texto || typeof texto !== 'string') return "";
             return texto.trim().replace(/\s+/g, ' ').toLowerCase().replace(/(?:^|\s)\S/g, function(a) { return a.toUpperCase(); });
         }
 
         function showToast(msg, type='success') {
-            const container = document.getElementById('toast-container'); const toast = document.createElement('div'); toast.className = `toast ${type}`;
-            const icon = type==='success'?'check_circle':'error'; toast.innerHTML = `<span class="material-icons-round" style="font-size:18px">${icon}</span> ${msg}`;
-            container.appendChild(toast); requestAnimationFrame(()=>toast.classList.add('visible')); setTimeout(()=>{ toast.classList.remove('visible'); setTimeout(()=>toast.remove(),400);},3000);
+            const container = document.getElementById('toast-container'); 
+            const toast = document.createElement('div'); 
+            toast.className = `toast ${type}`;
+            const icon = type==='success'?'check_circle':'error'; 
+            toast.innerHTML = `<span class="material-icons-round" style="font-size:18px">${icon}</span> ${msg}`;
+            container.appendChild(toast); 
+            requestAnimationFrame(()=>toast.classList.add('visible')); 
+            setTimeout(()=>{ toast.classList.remove('visible'); setTimeout(()=>toast.remove(),400);},3000);
         }
-        function normalizarTexto(t) { if(!t) return "pendente"; return t.toString().toLowerCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g,""); }
+        
+        function normalizarTexto(t) { 
+            if(!t) return "pendente"; 
+            return t.toString().toLowerCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g,""); 
+        }
 
+        // --- ARQUIVOS ---
         fileInput.addEventListener('change', function(e) { 
             if(this.files) {
                 Array.from(this.files).forEach(f=>{ 
@@ -665,34 +763,43 @@
             keptExistingAttachments.forEach((l,i)=>{ h+=`<div class="existing-file-link"><span class="material-icons-round" style="font-size:16px; color:var(--primary)">cloud_done</span> <span onclick="window.open('${l}','_blank')">Ver Arquivo ${i+1}</span><span class="material-icons-round" style="font-size:14px; color:var(--danger); cursor:pointer; margin-left:5px;" onclick="removeExistingAttachment(${i})">close</span></div>`; }); h+='</div>'; c.innerHTML=h;
         }
 
+        // --- CARREGAMENTO DE DADOS ---
         carregarDados();
+        
         async function carregarDados(silencioso=false) {
             try {
                 if(!silencioso) loadingOverlay.classList.remove('hidden');
-                const r = await fetch(API_URL + "?action=read&v=" + Date.now()); 
+                
+                const r = await fetch(`${API_URL}?action=read&token=${API_TOKEN}&v=${Date.now()}`); 
                 const d = await r.json();
+                
+                if(d.error) throw new Error(d.error);
                 if(!Array.isArray(d)) throw new Error("Dados inválidos");
+                
                 tasks = d.map(t=>{ 
                     const k=(n)=>Object.keys(t).find(x=>x.toLowerCase()===n.toLowerCase());
                     return {
-                        ...t, 
-                        id:Number(t.id), 
-                        dateStart:t[k('datestart')]||"", 
-                        dateDue:t[k('datedue')]||"", 
-                        status:t[k('status')]||"pendente", 
-                        steps:Array.isArray(t.steps)?t.steps:[], 
-                        attachments:t[k('attachments')]||"",
-                        origin:t[k('origin')]||"" 
+                        ...t, id: Number(t.id), title: t.title || "Sem Título", dateStart: t[k('datestart')]||"", 
+                        dateDue: t[k('datedue')]||"", status: t[k('status')]||"pendente", steps: Array.isArray(t.steps) ? t.steps : [], 
+                        attachments: t[k('attachments')]||"", origin: t[k('origin')]||"", unit: t[k('unit')]||"", resp: t[k('resp')]||""
                     };
                 });
-                popularFiltroUnidades(); 
-                popularFiltroOrigem(); 
-                aplicarFiltros(); 
+
+                popularFiltroUnidades(); popularFiltroOrigem(); aplicarFiltros(true); // Animação inicial
                 if(isStatsOpen) atualizarGraficos();
+                
                 tasks.forEach(t => { if (t.resp) t.resp.split(',').forEach(n => buscarFoto(n.trim())); });
+
+                if(Object.keys(dbNomes).length === 0) {
+                    fetch(`${API_URL}?action=getNamesHistory&token=${API_TOKEN}`)
+                      .then(res => res.json())
+                      .then(data => { dbNomes = data; })
+                      .catch(err => console.log("Erro nomes:", err));
+                }
+
             } catch(e) { 
                 console.error("Erro ao carregar:", e); 
-                showToast("Erro ao conectar no banco.", "error");
+                showToast("Erro ao conectar no banco: " + e.message, "error");
             } finally { 
                 if(!silencioso) loadingOverlay.classList.add('hidden'); 
             }
@@ -702,12 +809,8 @@
             const list = document.getElementById('list-unidade'); 
             const currentVal = document.getElementById('filtro-unidade').value;
             const u = [...new Set(tasks.map(t=>t.unit).filter(x=>x))].sort();
-            
             let html = `<div class="dropdown-item ${currentVal==='todos'?'selected':''}" onclick="selectFilter('unidade', 'todos', 'Unidade: Todas', this)">Unidade: Todas</div>`;
-            u.forEach(x => {
-                const isSel = currentVal === x ? 'selected' : '';
-                html += `<div class="dropdown-item ${isSel}" onclick="selectFilter('unidade', '${x}', '${x}', this)">${x}</div>`;
-            });
+            u.forEach(x => { const isSel = currentVal === x ? 'selected' : ''; html += `<div class="dropdown-item ${isSel}" onclick="selectFilter('unidade', '${x}', '${x}', this)">${x}</div>`; });
             list.innerHTML = html;
         }
         
@@ -715,102 +818,67 @@
             const list = document.getElementById('list-origem'); 
             const currentVal = document.getElementById('filtro-origem').value;
             const o = [...new Set(tasks.map(t=>t.origin).filter(x=>x && x.trim() !== ''))].sort();
-            
             let html = `<div class="dropdown-item ${currentVal==='todos'?'selected':''}" onclick="selectFilter('origem', 'todos', 'Origem: Todas', this)">Origem: Todas</div>`;
-            o.forEach(x => {
-                const isSel = currentVal === x ? 'selected' : '';
-                html += `<div class="dropdown-item ${isSel}" onclick="selectFilter('origem', '${x}', '${x}', this)">${x}</div>`;
-            });
+            o.forEach(x => { const isSel = currentVal === x ? 'selected' : ''; html += `<div class="dropdown-item ${isSel}" onclick="selectFilter('origem', '${x}', '${x}', this)">${x}</div>`; });
             list.innerHTML = html;
         }
 
-        function filtrarCards(v) { termoBusca=v.toLowerCase(); aplicarFiltros(); }
+        function filtrarCards(v) { termoBusca = v.toLowerCase(); aplicarFiltros(true); }
         
         function limparFiltros() { 
-            // Reseta valores ocultos
-            document.getElementById('filtro-status').value='todos'; 
-            document.getElementById('filtro-prioridade').value='todos'; 
-            document.getElementById('filtro-unidade').value='todos'; 
-            document.getElementById('filtro-origem').value='todos';
-            
-            // Reseta labels visuais
-            document.getElementById('lbl-status').innerText = 'Status: Todos';
-            document.getElementById('lbl-prioridade').innerText = 'Prioridade: Todas';
-            document.getElementById('lbl-unidade').innerText = 'Unidade: Todas';
-            document.getElementById('lbl-origem').innerText = 'Origem: Todas';
-
-            // Remove classes selected
+            document.getElementById('filtro-status').value='todos'; document.getElementById('filtro-prioridade').value='todos'; 
+            document.getElementById('filtro-unidade').value='todos'; document.getElementById('filtro-origem').value='todos';
+            document.getElementById('lbl-status').innerText = 'Status: Todos'; document.getElementById('lbl-prioridade').innerText = 'Prioridade: Todas'; 
+            document.getElementById('lbl-unidade').innerText = 'Unidade: Todas'; document.getElementById('lbl-origem').innerText = 'Origem: Todas';
             document.querySelectorAll('.dropdown-item').forEach(d => d.classList.remove('selected'));
-            // Adiciona selected nos 'Todos'
-            document.querySelectorAll('.dropdown-options').forEach(optContainer => {
-                if(optContainer.children[0]) optContainer.children[0].classList.add('selected');
-            });
-
-            aplicarFiltros(); 
+            document.querySelectorAll('.dropdown-options').forEach(optContainer => { if(optContainer.children[0]) optContainer.children[0].classList.add('selected'); });
+            termoBusca = "";
+            const searchInput = document.querySelector('.search-input'); if(searchInput) searchInput.value = "";
+            aplicarFiltros(true); 
         }
         
-        function aplicarFiltros() {
-            const fs=document.getElementById('filtro-status').value; const fp=document.getElementById('filtro-prioridade').value; 
-            const fu=document.getElementById('filtro-unidade').value; const fo=document.getElementById('filtro-origem').value;
-            
-            const btn=document.getElementById('btn-limpar'); 
-            btn.style.display=(fs!=='todos'||fp!=='todos'||fu!=='todos'||fo!=='todos')?'block':'none';
-            
-            const f=tasks.filter(t=>{
-                const mB = termoBusca==="" || t.title.toLowerCase().includes(termoBusca) || t.resp.toLowerCase().includes(termoBusca) || (t.unit&&t.unit.toLowerCase().includes(termoBusca));
-                const mS = fs==='todos' || normalizarTexto(t.status)===fs;
-                const mP = fp==='todos' || (t.priority||'baixa')===fp;
-                const mU = fu==='todos' || t.unit===fu;
-                const mO = fo==='todos' || (t.origin && t.origin === fo);
+        // CORREÇÃO: Função aceita parâmetro de animação
+        function aplicarFiltros(animar = true) {
+            const fs = document.getElementById('filtro-status').value; const fp = document.getElementById('filtro-prioridade').value; 
+            const fu = document.getElementById('filtro-unidade').value; const fo = document.getElementById('filtro-origem').value;
+            const btn = document.getElementById('btn-limpar'); btn.style.display = (fs!=='todos'||fp!=='todos'||fu!=='todos'||fo!=='todos'||termoBusca!=="") ? 'block':'none';
+            const f = tasks.filter(t => {
+                const tTitle = (t.title || "").toLowerCase(); const tResp = (t.resp || "").toLowerCase(); const tUnit = (t.unit || "").toLowerCase();
+                const mB = termoBusca==="" || tTitle.includes(termoBusca) || tResp.includes(termoBusca) || tUnit.includes(termoBusca);
+                const mS = fs==='todos' || normalizarTexto(t.status)===fs; const mP = fp==='todos' || (t.priority||'baixa')===fp;
+                const mU = fu==='todos' || t.unit===fu; const mO = fo==='todos' || (t.origin && t.origin === fo);
                 return mB && mS && mP && mU && mO;
             });
             const hj = new Date().toISOString().split('T')[0];
             f.sort((a,b)=>{ 
-                const stA = normalizarTexto(a.status); const stB = normalizarTexto(b.status);
-                const isConcA = stA === 'concluido', isConcB = stB === 'concluido';
-                if(isConcA && !isConcB) return 1; if(!isConcA && isConcB) return -1;
+                const stA = normalizarTexto(a.status), stB = normalizarTexto(b.status);
+                if(stA === 'concluido' && stB !== 'concluido') return 1; if(stA !== 'concluido' && stB === 'concluido') return -1;
                 const dDueA = dataParaInput(a.dateDue), dDueB = dataParaInput(b.dateDue);
                 const isLateA = (dDueA && dDueA < hj && dDueA !== ""), isLateB = (dDueB && dDueB < hj && dDueB !== "");
                 if (isLateA && !isLateB) return -1; if (!isLateA && isLateB) return 1;  
                 return b.id - a.id;
             });
             
-            // LÓGICA DE TRANSIÇÃO SUAVE (Fade Out -> Swap -> Fade In)
-            const gridEl = document.getElementById('grid');
-            gridEl.classList.add('hidden-transition'); // Inicia Fade Out
-
-            // Limpa timeout anterior se o usuário clicar rápido demais
-            if(window.filterTimeout) clearTimeout(window.filterTimeout);
-
-            window.filterTimeout = setTimeout(() => {
-                renderGrid(f);
-                // Pequeno delay para o DOM atualizar antes de mostrar
-                requestAnimationFrame(() => {
-                    gridEl.classList.remove('hidden-transition'); // Inicia Fade In
-                });
-            }, 200); // Tempo compatível com a transição CSS (0.25s)
+            // Renderiza com a opção de animação
+            renderGrid(f, animar);
         }
 
+        // --- RENDERIZAÇÃO ---
         async function buscarFoto(nome) {
             if (!nome) return null;
             if (photoCache[nome] !== undefined) return photoCache[nome]; 
             if(buscandoAgora.has(nome)) return null;
             buscandoAgora.add(nome);
             try {
-                const res = await fetch(`${API_URL}?action=getPhoto&name=${encodeURIComponent(nome)}`);
+                const res = await fetch(`${API_URL}?action=getPhoto&name=${encodeURIComponent(nome)}&token=${API_TOKEN}`);
                 const data = await res.json();
                 if (data.url) { 
                     photoCache[nome] = data.url; 
                     const avataresNaGrid = document.querySelectorAll(`.avatar-stack-item[data-name="${nome}"]`);
-                    avataresNaGrid.forEach(el => {
-                        el.innerHTML = `<img src="${data.url}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">`;
-                        el.className = el.className.replace(/av-color-\d/g, "");
-                        el.style.backgroundColor = "transparent";
-                    });
+                    avataresNaGrid.forEach(el => { el.innerHTML = `<img src="${data.url}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">`; el.className = el.className.replace(/av-color-\d/g, ""); el.style.backgroundColor = "transparent"; });
                     buscandoAgora.delete(nome);
                     return data.url; 
-                } 
-                else { photoCache[nome] = null; buscandoAgora.delete(nome); }
+                } else { photoCache[nome] = null; buscandoAgora.delete(nome); }
             } catch (e) { photoCache[nome] = null; buscandoAgora.delete(nome); }
             return null;
         }
@@ -818,30 +886,30 @@
         function getAvatarHTML(nomeStr, index) {
             if(!nomeStr) return '';
             const nomeTrim = formatarNomeProprio(nomeStr.trim());
+            if(!nomeTrim) return ''; 
             const url = photoCache[nomeTrim];
             const colorIndex = nomeTrim.length % 6; 
             const fallbackClass = `av-color-${colorIndex}`;
             const zIdx = 10 - index; 
-            if (url) {
-                return `<div class="avatar-stack-item" style="z-index:${zIdx}" title="${nomeTrim}" data-name="${nomeTrim}"><img src="${url}" alt="${nomeTrim[0]}" onerror="this.style.display='none';this.parentNode.classList.add('${fallbackClass}');this.parentNode.innerText='${nomeTrim[0]}' "></div>`;
-            }
+            if (url) { return `<div class="avatar-stack-item" style="z-index:${zIdx}" title="${nomeTrim}" data-name="${nomeTrim}"><img src="${url}" alt="${nomeTrim[0]}" onerror="this.style.display='none';this.parentNode.classList.add('${fallbackClass}');this.parentNode.innerText='${nomeTrim[0]}' "></div>`; }
             if (photoCache[nomeTrim] === undefined && nomeTrim.split(' ').length >= 2) { buscarFoto(nomeTrim); }
             return `<div class="avatar-stack-item ${fallbackClass}" style="z-index:${zIdx}" title="${nomeTrim}" data-name="${nomeTrim}">${nomeTrim[0].toUpperCase()}</div>`;
         }
 
-        function renderGrid(l) {
-            grid.innerHTML=""; if(l.length===0) { grid.innerHTML=`<div class="empty-state" style="grid-column:1/-1;text-align:center;padding:80px;color:#94a3b8"><span class="material-icons-round" style="font-size:40px">filter_list_off</span><h3>Nada encontrado</h3></div>`; return; }
-            const hj=new Date().toISOString().split('T')[0];
-            l.forEach((t,i)=>{
-                const st=normalizarTexto(t.status), dDue=dataParaInput(t.dateDue);
-                const isLate=(dDue&&dDue<hj&&st!=='concluido'), isConc=(st==='concluido'), isOnt=(dDue&&!isLate&&!isConc);
+        function renderGrid(l, animar=true) {
+            grid.innerHTML=""; 
+            if(l.length===0) { grid.innerHTML=`<div class="empty-state" style="grid-column:1/-1;text-align:center;padding:80px;color:#94a3b8"><span class="material-icons-round" style="font-size:40px">filter_list_off</span><h3>Nada encontrado</h3></div>`; return; }
+            const hj = new Date().toISOString().split('T')[0];
+            l.forEach((t,i) => {
+                const st = normalizarTexto(t.status); const dDue = dataParaInput(t.dateDue);
+                const isLate = (dDue && dDue < hj && st !== 'concluido'); const isConc = (st === 'concluido'); const isOnt = (dDue && !isLate && !isConc);
                 const respH = t.resp ? t.resp.split(',').map((r, idx)=> getAvatarHTML(r, idx)).join('') : '<span style="font-size:0.7rem;color:#94a3b8; padding-left:10px;">--</span>';
                 const stInfo = st==='pendente'?{l:'A Fazer',c:'st-pendente',b:'#475569'} : st==='andamento'?{l:'Andamento',c:'st-andamento',b:'#f59e0b'} : {l:'Concluído',c:'st-concluido',b:'#059669'};
                 const corBarra = st==='pendente'?'rgba(0,0,0,0.05)' : st==='andamento'?'#f59e0b' : '#059669';
-                const prio=t.priority||'baixa', pL={'alta':'Alta','media':'Média','baixa':'Baixa'}[prio], pC={'alta':'p-alta','media':'p-media','baixa':'p-baixa'}[prio], pI=prio==='alta'?'priority_high':prio==='media'?'remove':'keyboard_arrow_down';
-                let dtH=''; if(isLate) dtH=`<span class="date-pill late">Atrasado</span>`; else if(isOnt) dtH=`<span class="date-pill ontime">Em dia</span>`; else if(!dDue&&!isConc) dtH=`<span class="date-pill nodate">S/ Prazo</span>`;
+                const prio = t.priority || 'baixa'; const pL = {'alta':'Alta','media':'Média','baixa':'Baixa'}[prio] || 'Baixa'; const pC = {'alta':'p-alta','media':'p-media','baixa':'p-baixa'}[prio] || 'p-baixa'; const pI = prio==='alta'?'priority_high':prio==='media'?'remove':'keyboard_arrow_down';
+                let dtH=''; if(isLate) dtH=`<span class="date-pill late">Atrasado</span>`; else if(isOnt) dtH=`<span class="date-pill ontime">Em dia</span>`; else if(!dDue && !isConc) dtH=`<span class="date-pill nodate">S/ Prazo</span>`;
                 let thH=''; if(t.attachments) {
-                    let lks = t.attachments.includes("|||") ? t.attachments.split('|||').filter(x=>x) : t.attachments.split(',').filter(x=>x);
+                    let lks = t.attachments.toString().includes("|||") ? t.attachments.split('|||').filter(x=>x) : t.attachments.split(',').filter(x=>x);
                     if(lks.length>0) {
                         let innerTh = ''; for(let j=0; j<Math.min(lks.length,3); j++) innerTh+=`<a href="${lks[j]}" target="_blank" class="thumb-link" onclick="event.stopPropagation()"><span class="material-icons-round" style="font-size:16px">description</span></a>`;
                         if(lks.length>3) innerTh+=`<div class="thumb-more">+${lks.length-3}</div>`;
@@ -849,7 +917,15 @@
                     }
                 }
                 if(!thH) thH = `<div class="card-thumbs"></div>`;
-                const c=document.createElement('div'); c.className=`card animate-in ${isLate?'is-late':''} ${isConc?'is-concluded':''}`; c.onclick=()=>abrirModal(t.id, event); c.style.animationDelay=`${i*0.05}s`;
+                
+                const c = document.createElement('div'); 
+                // CORREÇÃO: Aplica classe animate-in SE animar for true, senão no-anim
+                c.className = `card ${animar ? 'animate-in' : 'no-anim'} ${isLate?'is-late':''} ${isConc?'is-concluded':''}`; 
+                c.onclick = () => abrirModal(t.id, event); 
+                
+                // Delay em cascata (só se animar)
+                if(animar) c.style.animationDelay = `${i*0.05}s`;
+                
                 c.innerHTML=`
                     <div class="card-main">
                         <div class="card-header-top"><div class="prio-badge ${pC}"><span class="material-icons-round" style="font-size:10px">${pI}</span> ${pL}</div><div class="status-text ${stInfo.c}"><div class="dot-status"></div> ${stInfo.l}</div></div>
@@ -868,60 +944,139 @@
         }
 
         function autoResize(el) { el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px'; }
+
+        // --- MODAL DE NOMES ---
+        function abrirModalNomes() {
+            const container = document.getElementById('namesListContainer');
+            container.innerHTML = '';
+            let lista = [];
+            for(let k in dbNomes) {
+                dbNomes[k].forEach(last => lista.push(k + " " + last));
+            }
+            lista.sort();
+            
+            if(lista.length === 0) {
+                container.innerHTML = '<div style="padding:20px;text-align:center;color:#aaa;">Nenhum nome encontrado.</div>';
+            } else {
+                lista.forEach(n => {
+                    const item = document.createElement('div');
+                    item.className = 'name-list-item';
+                    item.innerHTML = `<span>${n}</span> <span class="material-icons-round" style="font-size:16px; color:#cbd5e1">content_copy</span>`;
+                    item.onclick = () => {
+                        navigator.clipboard.writeText(n).then(() => showToast("Nome copiado!", "success"));
+                    };
+                    container.appendChild(item);
+                });
+            }
+            
+            document.getElementById('modalNomes').style.display = 'flex';
+            document.body.classList.add('modal-open'); 
+            setTimeout(() => document.getElementById('modalNomes').classList.add('active'), 10);
+        }
+
+        function fecharModalNomes() {
+            document.getElementById('modalNomes').classList.remove('active');
+            document.body.classList.remove('modal-open');
+            setTimeout(() => document.getElementById('modalNomes').style.display = 'none', 300);
+        }
+
+        // --- GERENCIAMENTO DE AVATARES ---
+        function gerenciarInputResponsavel(input) { 
+            // Somente debounce para atualizar avatars
+            debounceAtualizarAvatars(input.value); 
+        }
+
         function debounceAtualizarAvatars(val) { clearTimeout(debounceTimer); debounceTimer = setTimeout(() => atualizarAvatarsModal(val), 1500); }
 
+        function nomeExisteNoHistorico(nomeCompleto) {
+            if(!dbNomes) return false;
+            const partes = nomeCompleto.trim().split(' ');
+            // CORREÇÃO: Aceita nomes novos desde que tenham sobrenome (minimo 2 letras)
+            // Isso permite que o avatar de letra apareça para pessoas novas
+            if (partes.length >= 2 && partes[1].length >= 1) return true; 
+            
+            const pNome = formatarNomeProprio(partes[0]);
+            const sNome = partes.slice(1).join(' ').toLowerCase(); 
+            if (dbNomes[pNome]) { return dbNomes[pNome].some(sobrenome => sobrenome.toLowerCase() === sNome); }
+            return false;
+        }
+
         async function atualizarAvatarsModal(valorInput) {
+            if (typeof valorInput !== 'string') { valorInput = document.getElementById('inpResp').value; }
             const container = document.getElementById('modalAvatarList');
-            if(!valorInput) { Array.from(container.children).forEach(el => { el.classList.add('removing'); setTimeout(() => el.remove(), 400); }); return; }
+            if(!valorInput) { 
+                Array.from(container.children).forEach(el => { el.classList.add('removing'); setTimeout(() => el.remove(), 400); }); 
+                container.classList.remove('stacked'); 
+                return; 
+            }
+
             const nomesRaw = valorInput.split(',').filter(n => n.trim().length > 0);
             const nomesFormatados = nomesRaw.map(n => formatarNomeProprio(n.trim()));
-            Array.from(container.children).forEach(el => { if (!nomesFormatados.includes(el.title) && !el.classList.contains('removing')) { el.classList.add('removing'); setTimeout(() => el.remove(), 400); } });
+
+            // Adiciona classe STACKED se >= 3
+            if (nomesFormatados.length >= 3) { container.classList.add('stacked'); } 
+            else { container.classList.remove('stacked'); }
+
+            // 1. Remove quem não está mais na lista
+            Array.from(container.children).forEach(el => { 
+                const nomeNoElemento = el.querySelector('.avatar-wrapper') ? el.querySelector('.avatar-wrapper').dataset.name : el.getAttribute('data-name');
+                if (!nomesFormatados.includes(nomeNoElemento) && !el.classList.contains('removing')) { 
+                    el.classList.add('removing'); 
+                    setTimeout(() => el.remove(), 400); 
+                } 
+            });
+
+            // 2. Adiciona APENAS os novos (Diffing Real)
             for (const n of nomesFormatados) {
-                if(n.includes(' ') && n.split(' ')[1].length > 1) {
-                    const jaExiste = Array.from(container.children).some(el => el.title === n && !el.classList.contains('removing'));
-                    if (!jaExiste) {
-                        const url = await buscarFoto(n);
-                        const inputAgora = document.getElementById('inpResp').value;
-                        if (!inputAgora.toLowerCase().includes(n.toLowerCase())) continue;
-                        if(document.getElementById('modalAvatarList').querySelector(`[title="${n}"]`)) continue;
-                        if (url) {
-                            const img = document.createElement('img'); img.src = url; img.className = 'modal-avatar-big animate-in'; img.title = n; container.appendChild(img);
-                        } else {
-                            const div = document.createElement('div'); div.className = `modal-avatar-big animate-in av-color-${n.length%6}`; div.innerText = n[0].toUpperCase(); div.title = n; container.appendChild(div);
-                        }
+                // TRAVA: Só processa se tiver Sobrenome
+                const partes = n.split(' ');
+                if(partes.length < 2 || partes[1].length < 1) continue;
+
+                // Verifica se já existe na tela
+                const jaExiste = Array.from(container.children).some(el => {
+                     const nomeEl = el.querySelector('.avatar-wrapper') ? el.querySelector('.avatar-wrapper').dataset.name : el.getAttribute('data-name');
+                     return nomeEl === n && !el.classList.contains('removing');
+                });
+                
+                if (!jaExiste) {
+                    const wrapper = document.createElement('div');
+                    wrapper.className = 'avatar-wrapper animate-in';
+                    wrapper.setAttribute('data-name', n); // Nome para o tooltip
+
+                    const url = await buscarFoto(n);
+                    if (url) { 
+                        const img = document.createElement('img'); img.src = url; img.className = 'modal-avatar-big'; 
+                        wrapper.appendChild(img);
+                    } else {
+                        const div = document.createElement('div'); div.className = `modal-avatar-big av-color-${n.length%6}`; div.innerText = n[0].toUpperCase();
+                        wrapper.appendChild(div);
                     }
+                    container.appendChild(wrapper);
                 }
             }
         }
 
+        // Restante das funções inalteradas...
         function abrirModal(id=null, e=null) {
             if(e) e.stopPropagation();
+            if(id === null) limparFiltros(); 
             const isEdit=id!==null; editingStepIndex=-1; document.getElementById('newStepDesc').value=''; document.getElementById('newStepObs').value='';
             newFiles=[]; filesToDelete=[]; keptExistingAttachments=[]; document.getElementById('existingAttachmentsArea').innerHTML=''; renderFilePreview();
-            const ti = document.getElementById('inpTitle'); const container = document.getElementById('modalAvatarList'); container.innerHTML = ""; 
+            const ti = document.getElementById('inpTitle'); const container = document.getElementById('modalAvatarList'); container.innerHTML = ""; document.getElementById('inpResp').value = "";
+            container.classList.remove('stacked');
             if(isEdit) {
-                const t=tasks.find(x=>x.id==id); if(!t)return;
+                const t = tasks.find(x=>x.id==id); if(!t) return;
                 document.getElementById('taskId').value=t.id; ti.value=t.title; autoResize(ti);   
                 document.getElementById('inpUnit').value=t.unit; document.getElementById('inpPriority').value=t.priority; document.getElementById('inpOrigin').value=t.origin; document.getElementById('inpProblem').value=t.problem;
-                document.getElementById('inpResp').value=t.resp; 
-                if(t.resp) {
-                    const nomes = t.resp.split(',').filter(n => n.trim().length > 0);
-                    nomes.forEach(async (nomeRaw) => {
-                        const n = formatarNomeProprio(nomeRaw); const url = await buscarFoto(n);
-                        if(url) {
-                            const img = document.createElement('img'); img.src = url; img.className = 'modal-avatar-big animate-in'; img.title = n; container.appendChild(img);
-                        } else {
-                            const div = document.createElement('div'); div.className = `modal-avatar-big animate-in av-color-${n.length%6}`; div.innerText = n[0].toUpperCase(); div.title = n; container.appendChild(div);
-                        }
-                    });
-                }
+                document.getElementById('inpResp').value = t.resp; atualizarAvatarsModal(t.resp);
+                const respArea = document.getElementById('inpResp'); setTimeout(() => autoResize(respArea), 50);
                 document.getElementById('inpDateStart').value=dataParaInput(t.dateStart); document.getElementById('inpDateDue').value=dataParaInput(t.dateDue);
                 updateStatusUI(normalizarTexto(t.status)); tempSteps=[...t.steps];
-                if(t.attachments) { keptExistingAttachments=t.attachments.includes("|||")?t.attachments.split('|||').filter(x=>x):t.attachments.split(',').filter(x=>x); renderExistingAttachments(); }
+                if(t.attachments) { keptExistingAttachments=t.attachments.toString().includes("|||")?t.attachments.split('|||').filter(x=>x):t.attachments.split(',').filter(x=>x); renderExistingAttachments(); }
             } else {
                 const hj=new Date(); const y=hj.getFullYear(), m=String(hj.getMonth()+1).padStart(2,'0'), d=String(hj.getDate()).padStart(2,'0');
                 document.getElementById('taskId').value=''; ti.value=''; autoResize(ti); 
-                document.getElementById('inpUnit').value=''; document.getElementById('inpPriority').value='baixa'; document.getElementById('inpOrigin').value=''; document.getElementById('inpProblem').value=''; document.getElementById('inpResp').value='';
+                document.getElementById('inpUnit').value=''; document.getElementById('inpPriority').value='baixa'; document.getElementById('inpOrigin').value=''; document.getElementById('inpProblem').value=''; 
                 document.getElementById('inpDateStart').value=`${y}-${m}-${d}`; document.getElementById('inpDateDue').value=''; updateStatusUI('pendente'); tempSteps=[];
             }
             renderTimeline(); modal.style.display='flex'; setTimeout(()=>modal.classList.add('active'),10); setTimeout(() => autoResize(ti), 50); document.body.classList.add('modal-open');
@@ -934,43 +1089,41 @@
         
         async function salvarTask() {
             try {
-                const id=document.getElementById('taskId').value, title=document.getElementById('inpTitle').value;
+                const id = document.getElementById('taskId').value; const title = document.getElementById('inpTitle').value;
                 if(!title) { document.getElementById('alertMsg').innerText="Título obrigatório."; alertModal.style.display='flex'; setTimeout(()=>alertModal.classList.add('active'),10); return; }
-                const btn=document.getElementById('btnSalvarPrincipal'); const txt=btn.innerHTML; btn.innerHTML=`<span class="material-icons-round" style="font-size:16px;animation:spin 1s linear infinite;">refresh</span> Salvando...`; btn.disabled=true; document.body.style.cursor='wait';
-                const rawResp=document.getElementById('inpResp').value||""; 
+                const btn = document.getElementById('btnSalvarPrincipal'); const txt = btn.innerHTML; 
+                btn.innerHTML=`<span class="material-icons-round" style="font-size:16px;animation:spin 1s linear infinite;">refresh</span> Salvando...`; btn.disabled=true; document.body.style.cursor='wait';
+                const rawResp = document.getElementById('inpResp').value || "";
                 const namesFormatted = [...new Set(rawResp.split(',').map(n => formatarNomeProprio(n.trim())).filter(n => n.length > 0))].join(', ');
                 const finalId = id ? parseInt(id) : Date.now();
-                const payload = {
-                    id: finalId, title:title, unit:document.getElementById('inpUnit').value, priority:document.getElementById('inpPriority').value, origin:document.getElementById('inpOrigin').value, problem:document.getElementById('inpProblem').value, 
-                    resp: namesFormatted, dateStart:dataParaPlanilha(document.getElementById('inpDateStart').value), dateDue:dataParaPlanilha(document.getElementById('inpDateDue').value), status:document.getElementById('selectedStatus').value, steps:tempSteps,
-                    newFiles:newFiles, existingAttachments:keptExistingAttachments, filesToDelete:filesToDelete, action: id?"update":"create"
-                };
+                const payload = { token: API_TOKEN, id: finalId, title:title, unit:document.getElementById('inpUnit').value, priority:document.getElementById('inpPriority').value, origin:document.getElementById('inpOrigin').value, problem:document.getElementById('inpProblem').value, resp: namesFormatted, dateStart:dataParaPlanilha(document.getElementById('inpDateStart').value), dateDue:dataParaPlanilha(document.getElementById('inpDateDue').value), status:document.getElementById('selectedStatus').value, steps:tempSteps, newFiles:newFiles, existingAttachments:keptExistingAttachments, filesToDelete:filesToDelete, action: id?"update":"create" };
+                const taskFrontend = { ...payload, attachments: keptExistingAttachments.join(','), dateStart: document.getElementById('inpDateStart').value, dateDue: document.getElementById('inpDateDue').value };
                 const existingIdx = tasks.findIndex(t => t.id === finalId);
-                if (existingIdx > -1) { tasks[existingIdx] = { ...tasks[existingIdx], ...payload, attachments: keptExistingAttachments.join(',') }; } else { tasks.unshift({ ...payload, attachments: keptExistingAttachments.join(',') }); }
-                aplicarFiltros(); if(isStatsOpen) atualizarGraficos(); fecharModal(); showToast("Salvo! Sincronizando...", "success");
+                if (existingIdx > -1) { tasks[existingIdx] = taskFrontend; } else { tasks.unshift(taskFrontend); }
+                
+                // ATUALIZAÇÃO SEM ANIMAÇÃO
+                if(!id) limparFiltros(); else aplicarFiltros(false); 
+                
+                if(isStatsOpen) atualizarGraficos(); 
+                fecharModal(); showToast("Salvo! Sincronizando...", "success");
                 document.body.style.cursor = 'default'; btn.innerHTML=txt; btn.disabled=false; 
-                await fetch(API_URL, {method:"POST", mode:"no-cors", headers:{"Content-Type":"text/plain"}, body:JSON.stringify(payload)});
-                if(newFiles.length > 0) { setTimeout(() => carregarDados(true), 2000); }
+                await fetch(API_URL, {method:"POST", headers:{"Content-Type":"text/plain"}, body:JSON.stringify(payload)});
+                setTimeout(() => carregarDados(true), 2000);
             } catch(e) { console.error(e); showToast("Erro de conexão.", "error"); document.getElementById('btnSalvarPrincipal').disabled=false; document.body.style.cursor='default'; }
         }
 
         async function confirmarExclusao() {
             const id=document.getElementById('taskId').value; const btn=document.querySelector('.btn-delete'); const txt=btn.innerText; btn.innerText="Excluindo..."; btn.disabled=true; document.body.style.cursor='wait';
-            tasks = tasks.filter(t => t.id != id); fecharDeleteModal(); fecharModal(); aplicarFiltros(); if(isStatsOpen) atualizarGraficos(); showToast("Excluído!", "success");
+            tasks = tasks.filter(t => t.id != id); fecharDeleteModal(); fecharModal(); aplicarFiltros(true); if(isStatsOpen) atualizarGraficos(); showToast("Excluído!", "success");
             document.body.style.cursor = 'default'; btn.innerText=txt; btn.disabled=false;
-            try { await fetch(API_URL, {method:"POST", mode:"no-cors", headers:{"Content-Type":"text/plain"}, body:JSON.stringify({action:"delete", id:id})}); } catch(e) { console.error(e); } 
+            try { await fetch(API_URL, {method:"POST", headers:{"Content-Type":"text/plain"}, body:JSON.stringify({action:"delete", id:id, token: API_TOKEN})}); } catch(e) { console.error(e); } 
         }
 
         function renderTimeline(novoItemIndex = -1){ 
             timelineList.innerHTML=""; 
             tempSteps.forEach((s,i)=>{ 
                 const el=document.createElement('div'); el.className='timeline-item' + (i === novoItemIndex ? ' animate-in' : '');
-                el.innerHTML=`
-                    <div class="t-dot"></div>
-                    <div class="t-bubble" title="Segure para arrastar">
-                        <div class="t-actions"><span class="material-icons-round t-btn-icon" onclick="prepararEdicao(${i})">edit</span><span class="material-icons-round t-btn-icon del" onclick="removeStep(${i})">close</span></div>
-                        <div style="width:100%"><div style="font-weight:700; color:var(--text-main); padding-right:50px;">${s.desc}</div><div class="t-obs">${s.obs}</div></div>
-                    </div>`; 
+                el.innerHTML=`<div class="t-dot"></div><div class="t-bubble" title="Segure para arrastar"><div class="t-actions"><span class="material-icons-round t-btn-icon" onclick="prepararEdicao(${i})">edit</span><span class="material-icons-round t-btn-icon del" onclick="removeStep(${i})">close</span></div><div style="width:100%"><div style="font-weight:700; color:var(--text-main); padding-right:50px;">${s.desc}</div><div class="t-obs">${s.obs}</div></div></div>`; 
                 timelineList.appendChild(el); 
             }); 
         }
@@ -978,42 +1131,13 @@
         function adicionarPasso(){ const d=document.getElementById('newStepDesc').value, o=document.getElementById('newStepObs').value; if(!d)return document.getElementById('newStepDesc').focus(); let novoIndex = -1; if(editingStepIndex>-1){ tempSteps[editingStepIndex]={desc:d,obs:o}; editingStepIndex=-1; } else { tempSteps.push({desc:d,obs:o}); novoIndex = tempSteps.length - 1; } renderTimeline(novoIndex); setTimeout(() => { const tl = document.getElementById('timelineList'); if(tl.lastElementChild) { tl.lastElementChild.scrollIntoView({ behavior: 'smooth', block: 'end' }); } }, 100); document.getElementById('newStepDesc').value=''; document.getElementById('newStepObs').value=''; btnAddStep.innerText="Adicionar ao Histórico"; btnAddStep.className="btn-add-history"; }
         function removeStep(i){tempSteps.splice(i,1);renderTimeline();}
         function setStatus(e){updateStatusUI(e.getAttribute('data-val'));} function updateStatusUI(v){document.getElementById('selectedStatus').value=v;document.querySelectorAll('.seg-btn').forEach(b=>b.classList.remove('active'));document.querySelector(`.seg-btn[data-val="${v}"]`).classList.add('active');}
-        
         modal.onclick=(e)=>{if(e.target===modal)fecharModal()}; deleteModal.onclick=(e)=>{if(e.target===deleteModal)fecharDeleteModal()}; 
         attachmentDeleteModal.onclick=(e)=>{if(e.target===attachmentDeleteModal)fecharModalAnexo()};
         alertModal.onclick=(e)=>{if(e.target===alertModal)fecharAlertModal()};
+        modalNomes.onclick=(e)=>{if(e.target===modalNomes)fecharModalNomes()};
 
-        function toggleStats(e) {
-            isStatsOpen = !isStatsOpen; const btn = document.getElementById('btnStats');
-            if(isStatsOpen) { 
-                statsPanel.classList.add('open'); btn.classList.add('active'); 
-                window.scrollTo({ top: 0, behavior: 'smooth' });
-                if(tasks.length > 0) atualizarGraficos(); 
-            } else { statsPanel.classList.remove('open'); btn.classList.remove('active'); }
-        }
-
-        function atualizarGraficos() {
-            if(!isStatsOpen) return;
-            if(chartStatusInstance) chartStatusInstance.destroy(); if(chartPrazosInstance) chartPrazosInstance.destroy(); if(chartUnitInstance) chartUnitInstance.destroy(); if(chartRespInstance) chartRespInstance.destroy();
-            const statsStatus = { pendente:0, andamento:0, concluido:0 };
-            tasks.forEach(t => { let s = normalizarTexto(t.status); if(statsStatus[s] !== undefined) statsStatus[s]++; else statsStatus.pendente++; });
-            const hj = new Date().toISOString().split('T')[0];
-            let atrasados = 0, noPrazo = 0, semPrazo = 0;
-            tasks.forEach(t => { if(normalizarTexto(t.status) === 'concluido') return; const d = dataParaInput(t.dateDue); if(!d) semPrazo++; else if(d < hj) atrasados++; else noPrazo++; });
-            const unitMap = {}; tasks.forEach(t => { const u = t.unit || 'Sem Unidade'; unitMap[u] = (unitMap[u] || 0) + 1; });
-            const respMap = {}; 
-            tasks.forEach(t => { if(t.resp) { t.resp.split(',').forEach(r => { const name = formatarNomeProprio(r.trim()); if(name) respMap[name] = (respMap[name] || 0) + 1; }); } });
-            const sortedResp = Object.entries(respMap).sort((a,b)=>b[1]-a[1]).slice(0, 5);
-            const ctxStatus = document.getElementById('chartStatus').getContext('2d');
-            chartStatusInstance = new Chart(ctxStatus, { type: 'doughnut', data: { labels: ['A Fazer', 'Andamento', 'Concluído'], datasets: [{ data: [statsStatus.pendente, statsStatus.andamento, statsStatus.concluido], backgroundColor: ['#cbd5e1', '#f59e0b', '#059669'], borderWidth: 0 }] }, options: { responsive: true, maintainAspectRatio: false, cutout: '75%', plugins: { legend: { position: 'right', labels:{boxWidth:10} } } } });
-            const ctxPrazos = document.getElementById('chartPrazos').getContext('2d');
-            chartPrazosInstance = new Chart(ctxPrazos, { type: 'doughnut', data: { labels: ['Em Dia', 'Atrasado', 'S/ Prazo'], datasets: [{ data: [noPrazo, atrasados, semPrazo], backgroundColor: ['#10b981', '#ef4444', '#e2e8f0'], borderWidth: 0 }] }, options: { responsive: true, maintainAspectRatio: false, cutout: '75%', plugins: { legend: { position: 'right', labels:{boxWidth:10} } } } });
-            const ctxUnit = document.getElementById('chartUnit').getContext('2d');
-            chartUnitInstance = new Chart(ctxUnit, { type: 'doughnut', data: { labels: Object.keys(unitMap), datasets: [{ label: 'Ocorrências', data: Object.values(unitMap), backgroundColor: ['#0f4c81', '#00d2d3', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6'], borderWidth: 0 }] }, options: { responsive: true, maintainAspectRatio: false, cutout: '75%', plugins: { legend: { position: 'right', labels:{boxWidth:10} } } } });
-            const containerResp = document.getElementById('respChartContainer'); containerResp.style.height = (sortedResp.length * 40 + 50) + 'px';
-            const ctxResp = document.getElementById('chartResp').getContext('2d');
-            chartRespInstance = new Chart(ctxResp, { type: 'bar', indexAxis: 'y', data: { labels: sortedResp.map(i => i[0]), datasets: [{ label: 'Tarefas Ativas', data: sortedResp.map(i => i[1]), backgroundColor: '#00d2d3', borderRadius: 4, barPercentage: 0.3 }] }, options: { responsive: true, maintainAspectRatio: false, scales: { x: { beginAtZero: true, padding: {left:35} } } } });
-        }
+        function toggleStats(e) { isStatsOpen = !isStatsOpen; const btn = document.getElementById('btnStats'); if(isStatsOpen) { statsPanel.classList.add('open'); btn.classList.add('active'); window.scrollTo({ top: 0, behavior: 'smooth' }); if(tasks.length > 0) atualizarGraficos(); } else { statsPanel.classList.remove('open'); btn.classList.remove('active'); } }
+        function atualizarGraficos() { if(!isStatsOpen) return; if(chartStatusInstance) chartStatusInstance.destroy(); if(chartPrazosInstance) chartPrazosInstance.destroy(); if(chartUnitInstance) chartUnitInstance.destroy(); if(chartRespInstance) chartRespInstance.destroy(); const statsStatus = { pendente:0, andamento:0, concluido:0 }; tasks.forEach(t => { let s = normalizarTexto(t.status); if(statsStatus[s] !== undefined) statsStatus[s]++; else statsStatus.pendente++; }); const hj = new Date().toISOString().split('T')[0]; let atrasados = 0, noPrazo = 0, semPrazo = 0; tasks.forEach(t => { if(normalizarTexto(t.status) === 'concluido') return; const d = dataParaInput(t.dateDue); if(!d) semPrazo++; else if(d < hj) atrasados++; else noPrazo++; }); const unitMap = {}; tasks.forEach(t => { const u = t.unit || 'Sem Unidade'; unitMap[u] = (unitMap[u] || 0) + 1; }); const respMap = {}; tasks.forEach(t => { if(t.resp) { t.resp.split(',').forEach(r => { const name = formatarNomeProprio(r.trim()); if(name) respMap[name] = (respMap[name] || 0) + 1; }); } }); const sortedResp = Object.entries(respMap).sort((a,b)=>b[1]-a[1]).slice(0, 5); const ctxStatus = document.getElementById('chartStatus').getContext('2d'); chartStatusInstance = new Chart(ctxStatus, { type: 'doughnut', data: { labels: ['A Fazer', 'Andamento', 'Concluído'], datasets: [{ data: [statsStatus.pendente, statsStatus.andamento, statsStatus.concluido], backgroundColor: ['#cbd5e1', '#f59e0b', '#059669'], borderWidth: 0 }] }, options: { responsive: true, maintainAspectRatio: false, cutout: '75%', plugins: { legend: { position: 'right', labels:{boxWidth:10} } } } }); const ctxPrazos = document.getElementById('chartPrazos').getContext('2d'); chartPrazosInstance = new Chart(ctxPrazos, { type: 'doughnut', data: { labels: ['Em Dia', 'Atrasado', 'S/ Prazo'], datasets: [{ data: [noPrazo, atrasados, semPrazo], backgroundColor: ['#10b981', '#ef4444', '#e2e8f0'], borderWidth: 0 }] }, options: { responsive: true, maintainAspectRatio: false, cutout: '75%', plugins: { legend: { position: 'right', labels:{boxWidth:10} } } } }); const ctxUnit = document.getElementById('chartUnit').getContext('2d'); chartUnitInstance = new Chart(ctxUnit, { type: 'doughnut', data: { labels: Object.keys(unitMap), datasets: [{ label: 'Ocorrências', data: Object.values(unitMap), backgroundColor: ['#0f4c81', '#00d2d3', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6'], borderWidth: 0 }] }, options: { responsive: true, maintainAspectRatio: false, cutout: '75%', plugins: { legend: { position: 'right', labels:{boxWidth:10} } } } }); const containerResp = document.getElementById('respChartContainer'); containerResp.style.height = (sortedResp.length * 40 + 50) + 'px'; const ctxResp = document.getElementById('chartResp').getContext('2d'); chartRespInstance = new Chart(ctxResp, { type: 'bar', indexAxis: 'y', data: { labels: sortedResp.map(i => i[0]), datasets: [{ label: 'Tarefas Ativas', data: sortedResp.map(i => i[1]), backgroundColor: '#00d2d3', borderRadius: 4, barPercentage: 0.3 }] }, options: { responsive: true, maintainAspectRatio: false, scales: { x: { beginAtZero: true, padding: {left:35} } } } }); }
     </script>
 </body>
 </html>
