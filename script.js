@@ -2,7 +2,7 @@
 const API_URL = "https://script.google.com/macros/s/AKfycbyA8a8PaPz7T4lkx6NlQfeX1iWiNi9OywZKQO-Y_hUaNzrZF5_66ptDHCA-l9_IFeKc/exec";
 const API_TOKEN = "fav-2026-seguro-123";
 
-// MUDANÇA AQUI: Em vez da senha direta, usamos o código Base64 de "110423"
+// Hash Base64 de "110423"
 const PIN_HASH = "MTEwNDIz"; 
 
 /* --- ESTADO GLOBAL --- */
@@ -15,6 +15,12 @@ let editingStepIndex = -1;
 let termoBusca = "";
 let isStatsOpen = false;
 let attachmentToDeleteIndex = -1;
+
+/* --- OTIMIZAÇÃO DE SCROLL (NOVO) --- */
+let currentFilteredTasks = []; // Armazena a lista completa já filtrada/ordenada
+let itemsRendered = 0;         // Quantos itens já estão na tela
+const ITEMS_PER_BATCH = 30;    // Quantos itens carregar por vez
+let isRendering = false;       // Trava para evitar execução dupla
 
 // Variáveis de controle do PIN
 let pendingPinAction = null;
@@ -38,6 +44,7 @@ Chart.defaults.font.family = 'Montserrat';
 Chart.defaults.color = '#64748b';
 let chartStatusInstance, chartRespInstance, chartUnitInstance, chartPrazosInstance;
 
+// Referências DOM Principais
 const grid = document.getElementById('grid');
 const modal = document.getElementById('modalOverlay');
 const deleteModal = document.getElementById('deleteModal');
@@ -52,7 +59,7 @@ const btnStats = document.getElementById('btnStats');
 const loadingOverlay = document.getElementById('loading-overlay');
 const fileInput = document.getElementById('inpFiles');
 
-// Inicialização
+/* --- INICIALIZAÇÃO --- */
 window.onload = () => {
     carregarDados();
 
@@ -62,6 +69,22 @@ window.onload = () => {
             if (event.key === "Enter") validarPin();
         });
     }
+
+    // LISTENER DE SCROLL PARA CARREGAMENTO PROGRESSIVO
+    window.addEventListener('scroll', () => {
+        if (isRendering || isStatsOpen) return;
+
+        // Verifica se chegou perto do fim da página (300px de margem)
+        const scrollPosition = window.innerHeight + window.scrollY;
+        const threshold = document.body.offsetHeight - 300;
+
+        if (scrollPosition >= threshold) {
+            // Se ainda existem itens na lista filtrada que não foram renderizados
+            if (itemsRendered < currentFilteredTasks.length) {
+                renderNextBatch(true); 
+            }
+        }
+    });
 };
 
 /* --- LÓGICA DE SEGURANÇA (PIN OFUSCADO) --- */
@@ -91,8 +114,6 @@ function validarPin() {
     const inputVal = document.getElementById('pinInput').value;
     const errorMsg = document.getElementById('pinError');
 
-    // MUDANÇA AQUI: Codificamos o que o usuário digitou para comparar com o hash
-    // btoa() converte texto para Base64
     if (btoa(inputVal) === PIN_HASH) {
         // Senha Correta
         const action = pendingPinAction;
@@ -114,7 +135,7 @@ function validarPin() {
     }
 }
 
-/* --- FUNÇÕES DO SISTEMA --- */
+/* --- FUNÇÕES DO SISTEMA (CRUD E LOAD) --- */
 
 async function carregarDados(silencioso = false) {
     try {
@@ -568,6 +589,8 @@ function limparFiltros(animar = true) {
     aplicarFiltros(animar);
 }
 
+/* --- LÓGICA DE FILTRO E RENDERIZAÇÃO OTIMIZADA --- */
+
 function aplicarFiltros(animar = true) {
     const fs = document.getElementById('filtro-status').value;
     const fp = document.getElementById('filtro-prioridade').value;
@@ -579,6 +602,7 @@ function aplicarFiltros(animar = true) {
     if (deveMostrar) btn.classList.add('visible');
     else btn.classList.remove('visible');
 
+    // Filtra os dados
     const f = tasks.filter(t => {
         const tTitle = (t.title || "").toLowerCase();
         const tResp = (t.resp || "").toLowerCase();
@@ -593,6 +617,7 @@ function aplicarFiltros(animar = true) {
         return mB && mS && mP && mU && mO;
     });
 
+    // Ordena os dados
     const hj = new Date().toISOString().split('T')[0];
     f.sort((a, b) => {
         const stA = normalizarTexto(a.status), stB = normalizarTexto(b.status);
@@ -615,6 +640,103 @@ function aplicarFiltros(animar = true) {
     });
 
     renderGrid(f, animar);
+}
+
+// --- NOVA FUNÇÃO PRINCIPAL: Renderiza o Grid em Lotes ---
+function renderGrid(l, animar = true) {
+    // Reinicia o estado da lista
+    currentFilteredTasks = l;
+    itemsRendered = 0;
+    grid.innerHTML = "";
+
+    if (l.length === 0) {
+        grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;text-align:center;padding:80px;color:#94a3b8"><span class="material-icons-round" style="font-size:40px">filter_list_off</span><h3>Nada encontrado</h3></div>`;
+        return;
+    }
+
+    // Renderiza o primeiro lote
+    renderNextBatch(animar);
+}
+
+// --- NOVA FUNÇÃO AUXILIAR: Adiciona o próximo lote ao DOM ---
+function renderNextBatch(animar = true) {
+    if (isRendering) return;
+    isRendering = true;
+
+    const nextBatch = currentFilteredTasks.slice(itemsRendered, itemsRendered + ITEMS_PER_BATCH);
+    const fragment = document.createDocumentFragment();
+    const hj = new Date().toISOString().split('T')[0];
+
+    nextBatch.forEach((t, i) => {
+        // Cálculo de índice global para delay da animação (se desejar)
+        const globalIndex = itemsRendered + i;
+
+        const st = normalizarTexto(t.status);
+        const dDue = dataParaInput(t.dateDue);
+        const isLate = (dDue && dDue < hj && st !== 'concluido');
+        const isConc = (st === 'concluido');
+        const isOnt = (dDue && !isLate && !isConc);
+
+        const respH = t.resp ? t.resp.split(',').map((r, idx) => getAvatarHTML(r, idx)).join('') : '<span style="font-size:0.7rem;color:#94a3b8; padding-left:10px;">--</span>';
+        const stInfo = st === 'pendente' ? { l: 'A Fazer', c: 'st-pendente' } : st === 'andamento' ? { l: 'Andamento', c: 'st-andamento' } : { l: 'Concluído', c: 'st-concluido' };
+        const corBarra = st === 'pendente' ? 'rgba(0,0,0,0.05)' : st === 'andamento' ? '#f59e0b' : '#059669';
+        const prio = t.priority || 'baixa';
+        const pL = { 'alta': 'Alta', 'media': 'Média', 'baixa': 'Baixa' }[prio] || 'Baixa';
+        const pC = { 'alta': 'p-alta', 'media': 'p-media', 'baixa': 'p-baixa' }[prio] || 'p-baixa';
+        const pI = prio === 'alta' ? 'priority_high' : prio === 'media' ? 'remove' : 'keyboard_arrow_down';
+
+        let dtH = isLate ? `<span class="date-pill late">Atrasado</span>` : isOnt ? `<span class="date-pill ontime">Em dia</span>` : (!dDue && !isConc) ? `<span class="date-pill nodate">S/ Prazo</span>` : '';
+
+        let thH = '';
+        if (t.attachments) {
+            let lks = t.attachments.toString().includes("|||") ? t.attachments.split('|||').filter(x => x) : t.attachments.split(',').filter(x => x);
+            if (lks.length > 0) {
+                let innerTh = '';
+                for (let j = 0; j < Math.min(lks.length, 3); j++) innerTh += `<a href="${lks[j]}" target="_blank" class="thumb-link" onclick="event.stopPropagation()"><span class="material-icons-round" style="font-size:16px">description</span></a>`;
+                if (lks.length > 3) innerTh += `<div class="thumb-more">+${lks.length - 3}</div>`;
+                thH = `<div class="card-thumbs">${innerTh}</div>`;
+            }
+        }
+        if (!thH) thH = `<div class="card-thumbs"></div>`;
+
+        const isPinned = pinnedItems.some(p => String(p.id) === String(t.id));
+        const pinClass = isPinned ? 'active' : '';
+
+        const c = document.createElement('div');
+        c.className = `card ${animar ? 'animate-in' : 'no-anim'} ${isLate ? 'is-late' : ''} ${isConc ? 'is-concluded' : ''}`;
+        c.onclick = () => abrirModal(t.id, event);
+        
+        // Animação apenas nos primeiros elementos para não travar
+        if (animar && globalIndex < 10) c.style.animationDelay = `${i * 0.05}s`;
+
+        c.innerHTML = `
+            <div class="card-main">
+                <div class="btn-pin-card ${pinClass}" onclick="togglePin('${t.id}', event)" title="${isPinned ? 'Desafixar' : 'Fixar por 24h'}">
+                    <span class="material-icons-round" style="font-size:16px">push_pin</span>
+                </div>
+                <div class="card-header-top">
+                    <div class="prio-badge ${pC}"><span class="material-icons-round" style="font-size:10px">${pI}</span> ${pL}</div>
+                    <div class="status-text ${stInfo.c}"><div class="dot-status"></div> ${stInfo.l}</div>
+                </div>
+                <h3 title="${t.title}">${t.title}</h3>
+                <div class="card-origin-row"><span class="material-icons-round card-icon-std">history_edu</span> ${t.origin || 'N/A'}</div>
+                ${thH}
+                <div class="card-meta">
+                    <div class="meta-item"><span class="material-icons-round card-icon-std">event</span> ${formatarData(t.dateStart)}</div>
+                    <div class="meta-item"><span class="material-icons-round" style="font-size:16px;color:${isLate ? 'var(--danger)' : 'inherit'}">event_busy</span> ${formatarData(t.dateDue)} ${dtH}</div>
+                </div>
+            </div>
+            <div class="card-footer"><div class="resp-container">${respH}</div><div class="unit-clean"><span class="material-icons-round card-icon-std">apartment</span> ${t.unit || 'N/A'}</div></div>
+            <div class="card-progress-bar"><div class="progress-fill" style="width:100%;background:${corBarra}"></div></div>`;
+
+        fragment.appendChild(c);
+    });
+
+    grid.appendChild(fragment);
+    itemsRendered += nextBatch.length;
+    
+    // Pequeno delay para liberar a thread
+    setTimeout(() => { isRendering = false; }, 50);
 }
 
 async function buscarFoto(nome) {
@@ -754,78 +876,6 @@ function renderPinnedSection() {
         `;
         gridPin.appendChild(card);
     });
-}
-
-function renderGrid(l, animar = true) {
-    grid.innerHTML = "";
-    if (l.length === 0) {
-        grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;text-align:center;padding:80px;color:#94a3b8"><span class="material-icons-round" style="font-size:40px">filter_list_off</span><h3>Nada encontrado</h3></div>`;
-        return;
-    }
-    const hj = new Date().toISOString().split('T')[0];
-    const fragment = document.createDocumentFragment();
-
-    l.forEach((t, i) => {
-        const st = normalizarTexto(t.status);
-        const dDue = dataParaInput(t.dateDue);
-        const isLate = (dDue && dDue < hj && st !== 'concluido');
-        const isConc = (st === 'concluido');
-        const isOnt = (dDue && !isLate && !isConc);
-
-        const respH = t.resp ? t.resp.split(',').map((r, idx) => getAvatarHTML(r, idx)).join('') : '<span style="font-size:0.7rem;color:#94a3b8; padding-left:10px;">--</span>';
-        const stInfo = st === 'pendente' ? { l: 'A Fazer', c: 'st-pendente' } : st === 'andamento' ? { l: 'Andamento', c: 'st-andamento' } : { l: 'Concluído', c: 'st-concluido' };
-        const corBarra = st === 'pendente' ? 'rgba(0,0,0,0.05)' : st === 'andamento' ? '#f59e0b' : '#059669';
-        const prio = t.priority || 'baixa';
-        const pL = { 'alta': 'Alta', 'media': 'Média', 'baixa': 'Baixa' }[prio] || 'Baixa';
-        const pC = { 'alta': 'p-alta', 'media': 'p-media', 'baixa': 'p-baixa' }[prio] || 'p-baixa';
-        const pI = prio === 'alta' ? 'priority_high' : prio === 'media' ? 'remove' : 'keyboard_arrow_down';
-
-        let dtH = isLate ? `<span class="date-pill late">Atrasado</span>` : isOnt ? `<span class="date-pill ontime">Em dia</span>` : (!dDue && !isConc) ? `<span class="date-pill nodate">S/ Prazo</span>` : '';
-
-        let thH = '';
-        if (t.attachments) {
-            let lks = t.attachments.toString().includes("|||") ? t.attachments.split('|||').filter(x => x) : t.attachments.split(',').filter(x => x);
-            if (lks.length > 0) {
-                let innerTh = '';
-                for (let j = 0; j < Math.min(lks.length, 3); j++) innerTh += `<a href="${lks[j]}" target="_blank" class="thumb-link" onclick="event.stopPropagation()"><span class="material-icons-round" style="font-size:16px">description</span></a>`;
-                if (lks.length > 3) innerTh += `<div class="thumb-more">+${lks.length - 3}</div>`;
-                thH = `<div class="card-thumbs">${innerTh}</div>`;
-            }
-        }
-        if (!thH) thH = `<div class="card-thumbs"></div>`;
-
-        const isPinned = pinnedItems.some(p => String(p.id) === String(t.id));
-        const pinClass = isPinned ? 'active' : '';
-
-        const c = document.createElement('div');
-        c.className = `card ${animar ? 'animate-in' : 'no-anim'} ${isLate ? 'is-late' : ''} ${isConc ? 'is-concluded' : ''}`;
-        c.onclick = () => abrirModal(t.id, event);
-        if (animar) c.style.animationDelay = `${i * 0.05}s`;
-
-        c.innerHTML = `
-            <div class="card-main">
-                <div class="btn-pin-card ${pinClass}" onclick="togglePin('${t.id}', event)" title="${isPinned ? 'Desafixar' : 'Fixar por 24h'}">
-                    <span class="material-icons-round" style="font-size:16px">push_pin</span>
-                </div>
-                <div class="card-header-top">
-                    <div class="prio-badge ${pC}"><span class="material-icons-round" style="font-size:10px">${pI}</span> ${pL}</div>
-                    <div class="status-text ${stInfo.c}"><div class="dot-status"></div> ${stInfo.l}</div>
-                </div>
-                <h3 title="${t.title}">${t.title}</h3>
-                <div class="card-origin-row"><span class="material-icons-round card-icon-std">history_edu</span> ${t.origin || 'N/A'}</div>
-                ${thH}
-                <div class="card-meta">
-                    <div class="meta-item"><span class="material-icons-round card-icon-std">event</span> ${formatarData(t.dateStart)}</div>
-                    <div class="meta-item"><span class="material-icons-round" style="font-size:16px;color:${isLate ? 'var(--danger)' : 'inherit'}">event_busy</span> ${formatarData(t.dateDue)} ${dtH}</div>
-                </div>
-            </div>
-            <div class="card-footer"><div class="resp-container">${respH}</div><div class="unit-clean"><span class="material-icons-round card-icon-std">apartment</span> ${t.unit || 'N/A'}</div></div>
-            <div class="card-progress-bar"><div class="progress-fill" style="width:100%;background:${corBarra}"></div></div>`;
-
-        fragment.appendChild(c);
-    });
-
-    grid.appendChild(fragment);
 }
 
 function autoResize(el) {
