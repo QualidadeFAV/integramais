@@ -1,1501 +1,1360 @@
-/* --- CONFIGURAÇÕES GERAIS --- */
-const API_URL = "https://script.google.com/macros/s/AKfycbyA8a8PaPz7T4lkx6NlQfeX1iWiNi9OywZKQO-Y_hUaNzrZF5_66ptDHCA-l9_IFeKc/exec";
-const API_TOKEN = "fav-2026-seguro-123";
+// --- CONFIGURAÇÃO DA API (GOOGLE SHEETS) ---
+// IMPORTANTE: Verifique se esta URL é a da sua implantação mais recente
+const API_URL = "https://script.google.com/macros/s/AKfycbw5FgjU_NeBebC82cyMXb8-sYiyql5P9iw5ujdbQTnu7w0hMNCqTFwxPocIPh2bQVg/exec";
 
-// Hash Base64 de "110423"
-const PIN_HASH = "MTEwNDIz"; 
+// --- DADOS GLOBAIS ---
+let appointments = {}; 
+let validTokensMap = {}; 
 
-/* --- ESTADO GLOBAL --- */
-let tasks = [];
-let tempSteps = [];
-let newFiles = [];
-let keptExistingAttachments = [];
-let filesToDelete = [];
-let editingStepIndex = -1;
-let termoBusca = "";
-let isStatsOpen = false;
-let attachmentToDeleteIndex = -1;
+// --- CACHE DE PERFORMANCE ---
+const DASH_CACHE = {}; 
+// Estrutura: { "2026-02": { total: 100, occupied: 50, loaded: true, counts: {...} } }
 
-/* --- OTIMIZAÇÃO DE SCROLL (NOVO) --- */
-let currentFilteredTasks = []; // Armazena a lista completa já filtrada/ordenada
-let itemsRendered = 0;         // Quantos itens já estão na tela
-const ITEMS_PER_BATCH = 30;    // Quantos itens carregar por vez
-let isRendering = false;       // Trava para evitar execução dupla
+// CONFIGURAÇÃO DA DATA INICIAL (HOJE)
+const todayDate = new Date();
+const yInit = todayDate.getFullYear();
+const mInit = String(todayDate.getMonth() + 1).padStart(2, '0');
+const dInit = String(todayDate.getDate()).padStart(2, '0');
+let selectedDateKey = `${yInit}-${mInit}-${dInit}`; 
 
-// Variáveis de controle do PIN
-let pendingPinAction = null;
+let currentView = 'booking';
+let currentSlotId = null;
+let currentDateKey = null;
 
-// Sistema de Itens Fixados (LocalStorage)
-let pinnedItems = JSON.parse(localStorage.getItem('fav_pinned_tasks')) || [];
+// --- CONTROLE DE SESSÃO ---
+let currentUserToken = null;
+let currentUserRole = null;
+let pendingAction = null;
 
-// Sistema de Rascunho
-let draftData = null;
-let estadoInicialFormulario = "";
-let pendingIntentId = null;
-
-// Cache e Controle
-let photoCache = {};
-let buscandoAgora = new Set();
-let dbNomes = {};
-let debounceTimer;
-let filterTimeout;
-
-Chart.defaults.font.family = 'Montserrat';
-Chart.defaults.color = '#64748b';
-let chartStatusInstance, chartRespInstance, chartUnitInstance, chartPrazosInstance;
-
-// Referências DOM Principais
-const grid = document.getElementById('grid');
-const modal = document.getElementById('modalOverlay');
-const deleteModal = document.getElementById('deleteModal');
-const attachmentDeleteModal = document.getElementById('attachmentDeleteModal');
-const alertModal = document.getElementById('alertModal');
-const draftConfirmModal = document.getElementById('draftConfirmModal');
-const pinModal = document.getElementById('pinModal');
-const timelineList = document.getElementById('timelineList');
-const btnAddStep = document.getElementById('btnAddStepBtn');
-const statsPanel = document.getElementById('statsPanel');
-const btnStats = document.getElementById('btnStats');
-const loadingOverlay = document.getElementById('loading-overlay');
-const fileInput = document.getElementById('inpFiles');
-
-/* --- INICIALIZAÇÃO --- */
-window.onload = () => {
-    carregarDados();
-
-    const pinInput = document.getElementById('pinInput');
-    if (pinInput) {
-        pinInput.addEventListener('keyup', function(event) {
-            if (event.key === "Enter") validarPin();
-        });
-    }
-
-    // LISTENER DE SCROLL PARA CARREGAMENTO PROGRESSIVO
-    window.addEventListener('scroll', () => {
-        if (isRendering || isStatsOpen) return;
-
-        // Verifica se chegou perto do fim da página (300px de margem)
-        const scrollPosition = window.innerHeight + window.scrollY;
-        const threshold = document.body.offsetHeight - 300;
-
-        if (scrollPosition >= threshold) {
-            // Se ainda existem itens na lista filtrada que não foram renderizados
-            if (itemsRendered < currentFilteredTasks.length) {
-                renderNextBatch(true); 
-            }
-        }
-    });
+// --- CONSTANTES DE CONTRATOS ---
+const CONTRACTS = {
+    LOCALS: ["ESTADO", "SERRA", "SALGUEIRO"],
+    MUNICIPAL: ["RECIFE", "JABOATÃO"]
 };
 
-/* --- LÓGICA DE SEGURANÇA (PIN OFUSCADO) --- */
-
-function checkPinAndExecute(action) {
-    pendingPinAction = action;
-    const pinInp = document.getElementById('pinInput');
-    pinInp.value = "";
-    document.getElementById('pinError').style.opacity = "0";
-    pinModal.style.display = 'flex';
-    setTimeout(() => {
-        pinModal.classList.add('active');
-        pinInp.focus();
-    }, 10);
+// --- INDICADOR DE CARREGAMENTO (CURSOR) ---
+function setLoading(isLoading) {
+    const body = document.body;
+    body.style.cursor = isLoading ? 'wait' : 'default';
 }
 
-function fecharPinModal() {
-    pinModal.classList.remove('active');
-    setTimeout(() => {
-        pinModal.style.display = 'none';
-        pendingPinAction = null;
-        document.getElementById('pinInput').value = "";
-    }, 300);
-}
-
-function validarPin() {
-    const inputVal = document.getElementById('pinInput').value;
-    const errorMsg = document.getElementById('pinError');
-
-    if (btoa(inputVal) === PIN_HASH) {
-        // Senha Correta
-        const action = pendingPinAction;
-        fecharPinModal();
-
-        setTimeout(() => {
-            if (action === 'save') {
-                salvarTask();
-            } else if (action === 'delete') {
-                tentarDeletar();
-            }
-        }, 310);
-    } else {
-        // Senha Incorreta
-        errorMsg.style.opacity = "1";
-        const pinInp = document.getElementById('pinInput');
-        pinInp.classList.add('modified-field');
-        setTimeout(() => pinInp.classList.remove('modified-field'), 500);
+// --- NOTIFICAÇÃO TOAST (CONFIRMAÇÃO VISUAL) ---
+function showToast(message, type = 'success') {
+    let toast = document.getElementById('app-toast');
+    if (!toast) {
+        toast = document.createElement('div');
+        toast.id = 'app-toast';
+        toast.style.cssText = `
+            position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
+            background: #1e293b; color: white; padding: 12px 24px; border-radius: 50px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15); font-weight: 600; font-size: 0.9rem;
+            z-index: 5000; opacity: 0; transition: opacity 0.3s, top 0.3s; pointer-events: none;
+            display: flex; align-items: center; gap: 8px;
+        `;
+        document.body.appendChild(toast);
     }
-}
-
-/* --- FUNÇÕES DO SISTEMA (CRUD E LOAD) --- */
-
-async function carregarDados(silencioso = false) {
-    try {
-        if (!silencioso) loadingOverlay.classList.remove('hidden');
-
-        const r = await fetch(`${API_URL}?action=read&token=${API_TOKEN}&v=${Date.now()}`);
-        const d = await r.json();
-
-        if (d.result === 'error') throw new Error(d.message);
-        
-        const lista = Array.isArray(d) ? d : (d.data ? d.data : []);
-
-        tasks = lista.map(t => {
-            const k = (n) => Object.keys(t).find(x => x.toLowerCase() === n.toLowerCase());
-            let stepsRaw = t[k('steps')] || t.steps;
-            if (typeof stepsRaw === 'string') {
-                try { stepsRaw = JSON.parse(stepsRaw); } catch { stepsRaw = []; }
-            }
-
-            return {
-                ...t,
-                id: t.id,
-                title: t[k('title')] || "Sem Título",
-                dateStart: t[k('datestart')] || "",
-                dateDue: t[k('datedue')] || "",
-                status: t[k('status')] || "pendente",
-                steps: Array.isArray(stepsRaw) ? stepsRaw : [],
-                attachments: t[k('attachments')] || "",
-                origin: t[k('origin')] || "",
-                unit: t[k('unit')] || "",
-                resp: t[k('resp')] || "",
-                why: t[k('why')] || "",
-                how: t[k('how')] || "",
-                cost: t[k('cost')] || "",
-                obs: t[k('obs')] || ""
-            };
-        });
-
-        checkPinnedExpiration();
-        popularFiltroUnidades();
-        popularFiltroOrigem();
-        aplicarFiltros(!silencioso);
-
-        if (isStatsOpen) setTimeout(() => atualizarGraficos(), 100);
-
-        if (Object.keys(dbNomes).length === 0) {
-            fetch(`${API_URL}?action=getNamesHistory&token=${API_TOKEN}`)
-                .then(res => res.json())
-                .then(data => { dbNomes = data; })
-                .catch(err => console.log("Erro nomes:", err));
-        }
-
-    } catch (e) {
-        console.error("Erro ao carregar:", e);
-        if (!silencioso) showToast("Erro ao conectar no banco", "error");
-    } finally {
-        if (!silencioso) loadingOverlay.classList.add('hidden');
-    }
-}
-
-function salvarTask() {
-    const originVal = document.getElementById('inpOrigin').value;
-    if (!originVal || originVal.trim() === "") {
-        document.getElementById('alertMsg').innerText = "O campo ORIGEM é obrigatório!";
-        document.getElementById('alertModal').style.display = 'flex';
-        setTimeout(() => document.getElementById('alertModal').classList.add('active'), 10);
-        return;
-    }
-    const id = document.getElementById('taskId').value;
-    const title = document.getElementById('inpTitle').value;
-    if (!title || title.trim() === "") {
-        document.getElementById('alertMsg').innerText = "Preencha o título.";
-        document.getElementById('alertModal').style.display = 'flex';
-        setTimeout(() => document.getElementById('alertModal').classList.add('active'), 10);
-        return;
-    }
-
-    const stT = document.getElementById('newStepTitle').value.trim();
-    const stD = document.getElementById('newStepDesc').value.trim();
-    if (stT !== "" || stD !== "") {
-        const passo = {
-            title: stT,
-            desc: stD,
-            date: document.getElementById('newStepDate').value
-        };
-        if (editingStepIndex > -1) tempSteps[editingStepIndex] = passo;
-        else tempSteps.push(passo);
-    }
-
-    const taskObj = {
-        id: id ? id : "temp_" + Date.now(),
-        title: title,
-        origin: originVal,
-        unit: document.getElementById('inpUnit').value,
-        priority: document.getElementById('inpPriority').value,
-        status: document.getElementById('selectedStatus').value,
-        resp: document.getElementById('inpResp').value,
-        problem: document.getElementById('inpProblem').value,
-        why: document.getElementById('inpWhy').value,
-        how: document.getElementById('inpHow').value,
-        cost: document.getElementById('inpCost').value,
-        obs: document.getElementById('inpObs').value,
-        dateStart: document.getElementById('inpDateStart').value,
-        dateDue: document.getElementById('inpDateDue').value,
-        steps: tempSteps,
-        attachments: keptExistingAttachments.join('|||')
-    };
-
-    if (id) {
-        const idx = tasks.findIndex(t => String(t.id) === String(id));
-        if (idx > -1) tasks[idx] = { ...tasks[idx], ...taskObj };
-    } else {
-        tasks.unshift(taskObj);
-    }
-
-    fecharModal(true);
-    showToast("Salvo com sucesso!", "success");
-
-    aplicarFiltros(false);
-    renderPinnedSection();
-
-    setTimeout(() => {
-        if (isStatsOpen) atualizarGraficos();
-
-        const payload = {
-            action: id ? 'update' : 'create',
-            id: id,
-            title: title,
-            token: API_TOKEN,
-            origin: originVal,
-            unit: taskObj.unit,
-            priority: taskObj.priority,
-            status: taskObj.status,
-            resp: taskObj.resp,
-            problem: taskObj.problem,
-            why: taskObj.why,
-            how: taskObj.how,
-            cost: taskObj.cost,
-            obs: taskObj.obs,
-            dateStart: taskObj.dateStart,
-            dateDue: taskObj.dateDue,
-            steps: JSON.stringify(tempSteps),
-            keptAttachments: keptExistingAttachments.join('|||'),
-            filesToDelete: filesToDelete.join('|||'),
-            newFiles: newFiles
-        };
-
-        fetch(API_URL, {
-            method: "POST",
-            body: JSON.stringify(payload)
-        })
-        .then(r => r.json())
-        .then(d => {
-            if (d.result === 'success' || d.result === 'updated' || d.result === 'created') {
-                carregarDados(true);
-            } else {
-                showToast("Erro no servidor: " + (d.message || d.error), "error");
-            }
-        })
-        .catch(e => console.log("Erro rede ao salvar", e));
-    }, 100);
-}
-
-function tentarDeletar() {
-    const id = document.getElementById('taskId').value;
-    if (!id) return;
-    document.getElementById('deleteModal').style.display = 'flex';
-    setTimeout(() => document.getElementById('deleteModal').classList.add('active'), 10);
-}
-
-function confirmarExclusao() {
-    const id = document.getElementById('taskId').value;
-    if (!id) return;
+    const bg = type === 'success' ? '#059669' : (type === 'error' ? '#dc2626' : '#1e293b');
+    toast.style.background = bg;
     
-    document.getElementById('deleteModal').classList.remove('active');
-    setTimeout(() => document.getElementById('deleteModal').style.display = 'none', 300);
-    fecharModal(true);
+    const icon = type === 'success' 
+        ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"></polyline></svg>'
+        : '';
 
-    tasks = tasks.filter(t => String(t.id) !== String(id));
-    const pinIdx = pinnedItems.findIndex(p => String(p.id) === String(id));
-    if (pinIdx > -1) {
-        pinnedItems.splice(pinIdx, 1);
-        localStorage.setItem('fav_pinned_tasks', JSON.stringify(pinnedItems));
-        renderPinnedSection();
-    }
-    aplicarFiltros(false);
-    showToast("Excluído com sucesso!", "success");
+    toast.innerHTML = `${icon} ${message}`;
+    toast.style.top = '20px';
+    toast.style.opacity = '1';
 
     setTimeout(() => {
-        fetch(API_URL, {
-            method: "POST",
-            body: JSON.stringify({
-                action: "delete",
-                id: id,
-                token: API_TOKEN
-            })
-        })
-        .then(r => r.json())
-        .catch(e => carregarDados(true));
-    }, 50);
-}
-
-function fecharDeleteModal() {
-    document.getElementById('deleteModal').classList.remove('active');
-    setTimeout(() => document.getElementById('deleteModal').style.display = 'none', 300);
-}
-
-function resetarPagina() {
-    if (document.activeElement) document.activeElement.blur();
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-    const searchInput = document.querySelector('.search-input');
-    if (searchInput) searchInput.value = "";
-    termoBusca = "";
-    if (isStatsOpen) {
-        statsPanel.classList.remove('open');
-        document.getElementById('btnStats').classList.remove('active');
-        isStatsOpen = false;
-    }
-    setTimeout(() => limparFiltros(false), 300);
-}
-
-function toggleDropdown(id) {
-    const el = document.getElementById(id);
-    const overlay = document.getElementById('clickOverlay');
-    document.querySelectorAll('.custom-dropdown').forEach(d => { if (d.id !== id) d.classList.remove('active'); });
-    if (el.classList.contains('active')) {
-        el.classList.remove('active');
-        overlay.classList.remove('active');
-    } else {
-        el.classList.add('active');
-        overlay.classList.add('active');
-    }
-}
-
-function toggleModalDropdown(id, e) {
-    if (e) e.stopPropagation();
-    const el = document.getElementById(id);
-    document.querySelectorAll('.custom-dropdown-modal').forEach(d => { if (d.id !== id) d.classList.remove('active'); });
-    if (el.classList.contains('active')) {
-        el.classList.remove('active');
-    } else {
-        el.classList.add('active');
-        const inputVal = el.querySelector('input').value;
-        el.querySelectorAll('.dropdown-item').forEach(item => {
-            const dataVal = item.getAttribute('data-value');
-            if (dataVal === inputVal) item.classList.add('selected');
-            else item.classList.remove('selected');
-        });
-    }
-}
-
-function selectModalOption(type, value, label, e) {
-    if (e) e.stopPropagation();
-    if (type === 'unit') {
-        document.getElementById('inpUnit').value = value;
-        document.getElementById('display-unit').innerText = label;
-        document.getElementById('dd-modal-unit').classList.remove('active');
-    } else if (type === 'priority') {
-        document.getElementById('inpPriority').value = value;
-        document.getElementById('display-prio').innerText = label;
-        document.getElementById('dd-modal-prio').classList.remove('active');
-    }
-}
-
-document.addEventListener('click', function(e) {
-    if (!e.target.closest('.custom-dropdown-modal')) {
-        document.querySelectorAll('.custom-dropdown-modal').forEach(d => d.classList.remove('active'));
-    }
-});
-
-function closeAllDropdowns() {
-    document.querySelectorAll('.custom-dropdown').forEach(d => d.classList.remove('active'));
-    document.getElementById('clickOverlay').classList.remove('active');
-}
-
-function selectFilter(type, value, label, item) {
-    document.getElementById('filtro-' + type).value = value;
-    const btnLabel = document.getElementById('lbl-' + type);
-    if (btnLabel) btnLabel.innerText = label;
-    const container = document.getElementById('dd-' + type);
-    const options = container.querySelectorAll('.dropdown-item');
-    options.forEach(op => op.classList.remove('selected'));
-    item.classList.add('selected');
-    closeAllDropdowns();
-    aplicarFiltros(true);
-}
-
-function formatarMoeda(elm) {
-    let value = elm.value.replace(/\D/g, "");
-    value = (Number(value) / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-    elm.value = value;
-}
-
-function formatarData(isoStr) {
-    if (!isoStr) return "";
-    const partes = isoStr.split(/[-/T ]/);
-    if (partes.length >= 3) {
-        if (partes[0].length === 4) return `${partes[2]}/${partes[1]}/${partes[0]}`;
-        return `${partes[0]}/${partes[1]}/${partes[2]}`;
-    }
-    return isoStr;
-}
-
-function dataParaInput(isoStr) {
-    if (!isoStr) return "";
-    const d = new Date(isoStr);
-    if (isNaN(d.getTime())) return "";
-    return d.toISOString().split('T')[0];
-}
-
-function formatarNomeProprio(texto) {
-    if (!texto || typeof texto !== 'string') return "";
-    return texto.trim().replace(/\s+/g, ' ').toLowerCase().replace(/(?:^|\s)\S/g, function(a) { return a.toUpperCase(); });
-}
-
-function showToast(msg, type = 'success') {
-    const container = document.getElementById('toast-container');
-    const toast = document.createElement('div');
-    toast.className = `toast ${type}`;
-    const icon = type === 'success' ? 'check_circle' : (type === 'info' ? 'info' : 'error');
-    toast.innerHTML = `<span class="material-icons-round" style="font-size:18px">${icon}</span> ${msg}`;
-    container.appendChild(toast);
-    requestAnimationFrame(() => toast.classList.add('visible'));
-    setTimeout(() => {
-        toast.classList.remove('visible');
-        setTimeout(() => toast.remove(), 400);
+        toast.style.opacity = '0';
+        toast.style.top = '0px';
     }, 3000);
 }
 
-function normalizarTexto(t) {
-    if (!t) return "pendente";
-    return t.toString().toLowerCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-}
+// --- FUNÇÃO DE ANIMAÇÃO (NUMBERS GO UP) ---
+function animateMetric(elementId, targetValue, isPercentage = false) {
+    const element = document.getElementById(elementId);
+    if (!element) return;
 
-fileInput.addEventListener('change', function(e) {
-    if (this.files) {
-        Array.from(this.files).forEach(f => {
-            const r = new FileReader();
-            r.onload = evt => {
-                newFiles.push({ name: f.name, type: f.type, data: evt.target.result });
-                renderFilePreview();
-            };
-            r.readAsDataURL(f);
-        });
-    }
-    this.value = '';
-});
-
-function renderFilePreview() {
-    const c = document.getElementById('filePreviewList');
-    c.innerHTML = "";
-    newFiles.forEach((f, i) => {
-        const s = document.createElement('span');
-        s.className = 'file-chip';
-        let th = f.data.startsWith('data:image') ? `<img src="${f.data}" class="file-preview-img">` : `<span class="material-icons-round" style="font-size:16px">insert_drive_file</span>`;
-        s.innerHTML = `${th} <span class="file-name-trunc" title="${f.name}">${f.name}</span> <div class="file-remove-btn" onclick="removeNewFile(${i}, event)">&times;</div>`;
-        c.appendChild(s);
-    });
-}
-
-function removeNewFile(i, e) {
-    if (e) e.stopPropagation();
-    newFiles.splice(i, 1);
-    renderFilePreview();
-}
-
-function removeExistingAttachment(idx) {
-    attachmentToDeleteIndex = idx;
-    attachmentDeleteModal.style.display = 'flex';
-    setTimeout(() => attachmentDeleteModal.classList.add('active'), 10);
-}
-
-function fecharModalAnexo() {
-    attachmentDeleteModal.classList.remove('active');
-    setTimeout(() => attachmentDeleteModal.style.display = 'none', 300);
-    attachmentToDeleteIndex = -1;
-}
-
-function confirmarExclusaoAnexo() {
-    if (attachmentToDeleteIndex > -1) {
-        filesToDelete.push(keptExistingAttachments[attachmentToDeleteIndex]);
-        keptExistingAttachments.splice(attachmentToDeleteIndex, 1);
-        renderExistingAttachments();
-        fecharModalAnexo();
-    }
-}
-
-function renderExistingAttachments() {
-    const c = document.getElementById('existingAttachmentsArea');
-    if (keptExistingAttachments.length === 0) {
-        c.innerHTML = "";
-        return;
-    }
-    let h = '<div style="margin-bottom:5px; font-weight:bold; font-size:0.8rem; color:#555">Arquivos Salvos:</div><div style="display:flex; flex-wrap:wrap;">';
-    keptExistingAttachments.forEach((l, i) => {
-        h += `<div class="existing-file-link"><span class="material-icons-round" style="font-size:16px; color:var(--primary)">cloud_done</span> <span onclick="window.open('${l}','_blank')">Ver Arquivo ${i + 1}</span><span class="material-icons-round" style="font-size:14px; color:var(--danger); cursor:pointer; margin-left:5px;" onclick="removeExistingAttachment(${i})">close</span></div>`;
-    });
-    h += '</div>';
-    c.innerHTML = h;
-}
-
-function popularFiltroUnidades() {
-    const list = document.getElementById('list-unidade');
-    const currentVal = document.getElementById('filtro-unidade').value;
-    const u = [...new Set(tasks.map(t => t.unit).filter(x => x))].sort();
-    let html = `<div class="dropdown-item ${currentVal === 'todos' ? 'selected' : ''}" onclick="selectFilter('unidade', 'todos', 'Unidade: Todas', this)">Unidade: Todas</div>`;
-    u.forEach(x => {
-        const isSel = currentVal === x ? 'selected' : '';
-        html += `<div class="dropdown-item ${isSel}" onclick="selectFilter('unidade', '${x}', '${x}', this)">${x}</div>`;
-    });
-    list.innerHTML = html;
-}
-
-function popularFiltroOrigem() {
-    const list = document.getElementById('list-origem');
-    const currentVal = document.getElementById('filtro-origem').value;
-    const o = [...new Set(tasks.map(t => t.origin).filter(x => x && x.trim() !== ''))].sort();
-    let html = `<div class="dropdown-item ${currentVal === 'todos' ? 'selected' : ''}" onclick="selectFilter('origem', 'todos', 'Origem: Todas', this)">Origem: Todas</div>`;
-    o.forEach(x => {
-        const isSel = currentVal === x ? 'selected' : '';
-        html += `<div class="dropdown-item ${isSel}" onclick="selectFilter('origem', '${x}', '${x}', this)">${x}</div>`;
-    });
-    list.innerHTML = html;
-}
-
-function filtrarCards(v) {
-    termoBusca = v.toLowerCase();
-    if (filterTimeout) clearTimeout(filterTimeout);
-    filterTimeout = setTimeout(() => {
-        aplicarFiltros(true);
-    }, 300);
-}
-
-function limparFiltros(animar = true) {
-    document.getElementById('filtro-status').value = 'todos';
-    document.getElementById('filtro-prioridade').value = 'todos';
-    document.getElementById('filtro-unidade').value = 'todos';
-    document.getElementById('filtro-origem').value = 'todos';
-    document.getElementById('lbl-status').innerText = 'Status: Todos';
-    document.getElementById('lbl-prioridade').innerText = 'Prioridade: Todas';
-    document.getElementById('lbl-unidade').innerText = 'Unidade: Todas';
-    document.getElementById('lbl-origem').innerText = 'Origem: Todas';
-    document.querySelectorAll('.dropdown-item').forEach(d => d.classList.remove('selected'));
-    document.querySelectorAll('.dropdown-options').forEach(optContainer => {
-        if (optContainer.children[0]) optContainer.children[0].classList.add('selected');
-    });
-
-    termoBusca = "";
-    const searchInput = document.querySelector('.search-input');
-    if (searchInput) searchInput.value = "";
-    aplicarFiltros(animar);
-}
-
-/* --- LÓGICA DE FILTRO E RENDERIZAÇÃO OTIMIZADA --- */
-
-function aplicarFiltros(animar = true) {
-    const fs = document.getElementById('filtro-status').value;
-    const fp = document.getElementById('filtro-prioridade').value;
-    const fu = document.getElementById('filtro-unidade').value;
-    const fo = document.getElementById('filtro-origem').value;
-    const btn = document.getElementById('btn-limpar');
-
-    const deveMostrar = (fs !== 'todos' || fp !== 'todos' || fu !== 'todos' || fo !== 'todos' || termoBusca !== "");
-    if (deveMostrar) btn.classList.add('visible');
-    else btn.classList.remove('visible');
-
-    // Filtra os dados
-    const f = tasks.filter(t => {
-        const tTitle = (t.title || "").toLowerCase();
-        const tResp = (t.resp || "").toLowerCase();
-        const tUnit = (t.unit || "").toLowerCase();
-
-        const mB = termoBusca === "" || tTitle.includes(termoBusca) || tResp.includes(termoBusca) || tUnit.includes(termoBusca);
-        const mS = fs === 'todos' || normalizarTexto(t.status) === fs;
-        const mP = fp === 'todos' || (t.priority || 'baixa') === fp;
-        const mU = fu === 'todos' || t.unit === fu;
-        const mO = fo === 'todos' || (t.origin && t.origin === fo);
-
-        return mB && mS && mP && mU && mO;
-    });
-
-    // Ordena os dados
-    const hj = new Date().toISOString().split('T')[0];
-    f.sort((a, b) => {
-        const stA = normalizarTexto(a.status), stB = normalizarTexto(b.status);
-        const isConcA = (stA === 'concluido'), isConcB = (stB === 'concluido');
-        if (isConcA && !isConcB) return 1;
-        if (!isConcA && isConcB) return -1;
-        const dDueA = dataParaInput(a.dateDue), dDueB = dataParaInput(b.dateDue);
-        const isLateA = (dDueA && dDueA < hj && dDueA !== ""), isLateB = (dDueB && dDueB < hj && dDueB !== "");
-        if (isLateA && !isLateB) return -1;
-        if (!isLateA && isLateB) return 1;
-        if (isLateA && isLateB) {
-            if (dDueA < dDueB) return -1;
-            if (dDueA > dDueB) return 1;
-        }
-        const mapPrio = { 'alta': 3, 'media': 2, 'baixa': 1 };
-        const pA = mapPrio[a.priority || 'baixa'] || 1, pB = mapPrio[b.priority || 'baixa'] || 1;
-        if (pA > pB) return -1;
-        if (pA < pB) return 1;
-        return b.id - a.id;
-    });
-
-    renderGrid(f, animar);
-}
-
-// --- NOVA FUNÇÃO PRINCIPAL: Renderiza o Grid em Lotes ---
-function renderGrid(l, animar = true) {
-    // Reinicia o estado da lista
-    currentFilteredTasks = l;
-    itemsRendered = 0;
-    grid.innerHTML = "";
-
-    if (l.length === 0) {
-        grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;text-align:center;padding:80px;color:#94a3b8"><span class="material-icons-round" style="font-size:40px">filter_list_off</span><h3>Nada encontrado</h3></div>`;
-        return;
-    }
-
-    // Renderiza o primeiro lote
-    renderNextBatch(animar);
-}
-
-// --- NOVA FUNÇÃO AUXILIAR: Adiciona o próximo lote ao DOM ---
-function renderNextBatch(animar = true) {
-    if (isRendering) return;
-    isRendering = true;
-
-    const nextBatch = currentFilteredTasks.slice(itemsRendered, itemsRendered + ITEMS_PER_BATCH);
-    const fragment = document.createDocumentFragment();
-    const hj = new Date().toISOString().split('T')[0];
-
-    nextBatch.forEach((t, i) => {
-        // Cálculo de índice global para delay da animação (se desejar)
-        const globalIndex = itemsRendered + i;
-
-        const st = normalizarTexto(t.status);
-        const dDue = dataParaInput(t.dateDue);
-        const isLate = (dDue && dDue < hj && st !== 'concluido');
-        const isConc = (st === 'concluido');
-        const isOnt = (dDue && !isLate && !isConc);
-
-        const respH = t.resp ? t.resp.split(',').map((r, idx) => getAvatarHTML(r, idx)).join('') : '<span style="font-size:0.7rem;color:#94a3b8; padding-left:10px;">--</span>';
-        const stInfo = st === 'pendente' ? { l: 'A Fazer', c: 'st-pendente' } : st === 'andamento' ? { l: 'Andamento', c: 'st-andamento' } : { l: 'Concluído', c: 'st-concluido' };
-        const corBarra = st === 'pendente' ? 'rgba(0,0,0,0.05)' : st === 'andamento' ? '#f59e0b' : '#059669';
-        const prio = t.priority || 'baixa';
-        const pL = { 'alta': 'Alta', 'media': 'Média', 'baixa': 'Baixa' }[prio] || 'Baixa';
-        const pC = { 'alta': 'p-alta', 'media': 'p-media', 'baixa': 'p-baixa' }[prio] || 'p-baixa';
-        const pI = prio === 'alta' ? 'priority_high' : prio === 'media' ? 'remove' : 'keyboard_arrow_down';
-
-        let dtH = isLate ? `<span class="date-pill late">Atrasado</span>` : isOnt ? `<span class="date-pill ontime">Em dia</span>` : (!dDue && !isConc) ? `<span class="date-pill nodate">S/ Prazo</span>` : '';
-
-        let thH = '';
-        if (t.attachments) {
-            let lks = t.attachments.toString().includes("|||") ? t.attachments.split('|||').filter(x => x) : t.attachments.split(',').filter(x => x);
-            if (lks.length > 0) {
-                let innerTh = '';
-                for (let j = 0; j < Math.min(lks.length, 3); j++) innerTh += `<a href="${lks[j]}" target="_blank" class="thumb-link" onclick="event.stopPropagation()"><span class="material-icons-round" style="font-size:16px">description</span></a>`;
-                if (lks.length > 3) innerTh += `<div class="thumb-more">+${lks.length - 3}</div>`;
-                thH = `<div class="card-thumbs">${innerTh}</div>`;
-            }
-        }
-        if (!thH) thH = `<div class="card-thumbs"></div>`;
-
-        const isPinned = pinnedItems.some(p => String(p.id) === String(t.id));
-        const pinClass = isPinned ? 'active' : '';
-
-        const c = document.createElement('div');
-        c.className = `card ${animar ? 'animate-in' : 'no-anim'} ${isLate ? 'is-late' : ''} ${isConc ? 'is-concluded' : ''}`;
-        c.onclick = () => abrirModal(t.id, event);
-        
-        // Animação apenas nos primeiros elementos para não travar
-        if (animar && globalIndex < 10) c.style.animationDelay = `${i * 0.05}s`;
-
-        c.innerHTML = `
-            <div class="card-main">
-                <div class="btn-pin-card ${pinClass}" onclick="togglePin('${t.id}', event)" title="${isPinned ? 'Desafixar' : 'Fixar por 24h'}">
-                    <span class="material-icons-round" style="font-size:16px">push_pin</span>
-                </div>
-                <div class="card-header-top">
-                    <div class="prio-badge ${pC}"><span class="material-icons-round" style="font-size:10px">${pI}</span> ${pL}</div>
-                    <div class="status-text ${stInfo.c}"><div class="dot-status"></div> ${stInfo.l}</div>
-                </div>
-                <h3 title="${t.title}">${t.title}</h3>
-                <div class="card-origin-row"><span class="material-icons-round card-icon-std">history_edu</span> ${t.origin || 'N/A'}</div>
-                ${thH}
-                <div class="card-meta">
-                    <div class="meta-item"><span class="material-icons-round card-icon-std">event</span> ${formatarData(t.dateStart)}</div>
-                    <div class="meta-item"><span class="material-icons-round" style="font-size:16px;color:${isLate ? 'var(--danger)' : 'inherit'}">event_busy</span> ${formatarData(t.dateDue)} ${dtH}</div>
-                </div>
-            </div>
-            <div class="card-footer"><div class="resp-container">${respH}</div><div class="unit-clean"><span class="material-icons-round card-icon-std">apartment</span> ${t.unit || 'N/A'}</div></div>
-            <div class="card-progress-bar"><div class="progress-fill" style="width:100%;background:${corBarra}"></div></div>`;
-
-        fragment.appendChild(c);
-    });
-
-    grid.appendChild(fragment);
-    itemsRendered += nextBatch.length;
+    let startValue = 0;
+    const currentText = element.innerText;
     
-    // Pequeno delay para liberar a thread
-    setTimeout(() => { isRendering = false; }, 50);
+    if (currentText !== '--' && currentText !== '--%') {
+        startValue = parseFloat(currentText.replace('%', '').replace('(', '').replace(')', ''));
+        if (isNaN(startValue)) startValue = 0;
+    }
+
+    if (startValue === targetValue) {
+        element.innerText = isPercentage ? targetValue.toFixed(1) + '%' : targetValue;
+        return;
+    }
+
+    const duration = 1000;
+    const startTime = performance.now();
+
+    function update(currentTime) {
+        const elapsed = currentTime - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+        const ease = 1 - Math.pow(1 - progress, 4); 
+
+        const current = startValue + (targetValue - startValue) * ease;
+
+        if (isPercentage) {
+            element.innerText = current.toFixed(1) + '%';
+        } else {
+            element.innerText = Math.floor(current);
+        }
+
+        if (progress < 1) {
+            requestAnimationFrame(update);
+        } else {
+            element.innerText = isPercentage ? targetValue.toFixed(1) + '%' : targetValue;
+        }
+    }
+
+    requestAnimationFrame(update);
 }
 
-async function buscarFoto(nome) {
-    if (!nome) return null;
-    if (photoCache[nome] !== undefined) return photoCache[nome];
-    if (buscandoAgora.has(nome)) return null;
-    buscandoAgora.add(nome);
+// --- FUNÇÃO AUXILIAR PARA SUB-ESTATÍSTICAS ---
+function animateSubMetric(elementId, val, groupTotal) {
+    const element = document.getElementById(elementId);
+    if (!element) return;
+
+    const pct = groupTotal > 0 ? (val / groupTotal) * 100 : 0;
+    const finalText = `${pct.toFixed(1)}% (${val})`;
+    
+    element.innerText = finalText;
+}
+
+// --- LÓGICA DE PRÉ-PROCESSAMENTO DO CACHE ---
+function recalculateMonthCache(monthKey) {
+    if (!monthKey) return;
+
+    let totalSlots = 0;
+    let occupiedSlots = 0;
+
+    let counts = {
+        Regulado: { Total: 0, ESTADO: 0, SERRA: 0, SALGUEIRO: 0 },
+        Interno: { Total: 0, ESTADO: 0, SERRA: 0, SALGUEIRO: 0 },
+        Municipal: { Total: 0, RECIFE: 0, JABOATÃO: 0 }
+    };
+
+    Object.keys(appointments).forEach(dateKey => {
+        if (dateKey.startsWith(monthKey)) {
+            const daySlots = appointments[dateKey];
+            totalSlots += daySlots.length;
+
+            daySlots.forEach(s => {
+                if (s.status === 'OCUPADO') {
+                    occupiedSlots++;
+                    
+                    const c = s.contract ? s.contract.toUpperCase() : null;
+                    if (!c) return;
+
+                    if (CONTRACTS.MUNICIPAL.includes(c)) {
+                        counts.Municipal.Total++;
+                        if (counts.Municipal[c] !== undefined) counts.Municipal[c]++;
+                    } else if (CONTRACTS.LOCALS.includes(c)) {
+                        let isReg = (s.regulated === true || s.regulated === "TRUE" || s.regulated === "YES");
+                        if (isReg) {
+                            counts.Regulado.Total++;
+                            if (counts.Regulado[c] !== undefined) counts.Regulado[c]++;
+                        } else {
+                            counts.Interno.Total++;
+                            if (counts.Interno[c] !== undefined) counts.Interno[c]++;
+                        }
+                    }
+                }
+            });
+        }
+    });
+
+    if(!DASH_CACHE[monthKey]) DASH_CACHE[monthKey] = {};
+    
+    DASH_CACHE[monthKey].total = totalSlots;
+    DASH_CACHE[monthKey].occupied = occupiedSlots;
+    DASH_CACHE[monthKey].counts = counts;
+}
+
+// --- COMUNICAÇÃO COM O BACKEND (GOOGLE SHEETS) ---
+
+// 1. CARREGAR TOKENS VÁLIDOS
+async function fetchValidTokens() {
     try {
-        const res = await fetch(`${API_URL}?action=getPhoto&name=${encodeURIComponent(nome)}&token=${API_TOKEN}`);
-        const data = await res.json();
-        if (data.url) {
-            photoCache[nome] = data.url;
-            document.querySelectorAll(`.avatar-stack-item[data-name="${nome}"]`).forEach(el => {
-                el.innerHTML = `<img src="${data.url}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">`;
-                el.className = el.className.replace(/av-color-\d/g, "");
-                el.style.backgroundColor = "transparent";
-            });
-            document.querySelectorAll(`.avatar-wrapper[data-name="${nome}"]`).forEach(wrapper => {
-                const divBolinha = wrapper.querySelector('div.modal-avatar-big');
-                if (divBolinha) divBolinha.remove();
-                if (!wrapper.querySelector('img')) {
-                    const img = document.createElement('img');
-                    img.src = data.url;
-                    img.className = 'modal-avatar-big';
-                    wrapper.appendChild(img);
-                }
-            });
-            buscandoAgora.delete(nome);
-            return data.url;
+        const response = await fetch(`${API_URL}?type=tokens`, { redirect: "follow" });
+        const data = await response.json();
+        if (data.error) {
+            console.error("Erro tokens:", data.error);
         } else {
-            photoCache[nome] = null;
-            buscandoAgora.delete(nome);
+            validTokensMap = data;
         }
+    } catch (error) {
+        console.error("Falha tokens:", error);
+    }
+}
+
+// 2. PROCESSAMENTO DE DADOS (RAW -> APP)
+function processRawData(rows, forceDateKey = null) {
+    if ((!rows || rows.length === 0) && forceDateKey) {
+        if (!appointments[forceDateKey]) appointments[forceDateKey] = [];
+        return;
+    }
+
+    rows.forEach(row => {
+        const key = row.date; 
+        if (!key) return;
+
+        if (!appointments[key]) appointments[key] = [];
+        
+        const exists = appointments[key].find(s => String(s.id) === String(row.id));
+        
+        if (!exists) {
+            appointments[key].push({
+                id: row.id,
+                date: row.date,
+                time: row.time,
+                room: row.room,
+                location: row.location,
+                doctor: row.doctor,
+                specialty: row.specialty,
+                status: row.status,
+                patient: row.patient,
+                record: row.record,
+                contract: row.contract,
+                regulated: (row.regulated === true || row.regulated === "TRUE" || row.regulated === "YES"),
+                procedure: row.procedure,
+                detail: row.detail,
+                eye: row.eye,
+                createdBy: row.created_by
+            });
+        } else {
+            const idx = appointments[key].findIndex(s => String(s.id) === String(row.id));
+            if(idx !== -1) {
+                appointments[key][idx] = {
+                    ...appointments[key][idx],
+                    status: row.status,
+                    patient: row.patient,
+                    record: row.record,
+                    contract: row.contract,
+                    regulated: (row.regulated === true || row.regulated === "TRUE" || row.regulated === "YES"),
+                    procedure: row.procedure,
+                    detail: row.detail,
+                    eye: row.eye,
+                    createdBy: row.created_by
+                };
+            }
+        }
+    });
+
+    if (forceDateKey) {
+        recalculateMonthCache(forceDateKey.substring(0, 7));
+    } else if (rows.length > 0) {
+        recalculateMonthCache(rows[0].date.substring(0, 7));
+    }
+}
+
+// 3. BUSCAR DADOS DE UM DIA ESPECÍFICO (FALLBACK)
+async function fetchRemoteData(dateKey, isBackground = false) {
+    if (API_URL.includes("SUA_URL")) { alert("Configure a API_URL!"); return; }
+    if (!isBackground) setLoading(true);
+
+    try {
+        const response = await fetch(`${API_URL}?date=${dateKey}`, { redirect: "follow" });
+        const data = await response.json();
+
+        if (data.error) throw new Error(data.error);
+
+        if(data.length === 0) appointments[dateKey] = [];
+        
+        processRawData(data, dateKey);
+
+        if (dateKey === selectedDateKey) {
+            renderSlotsList();
+            if (currentView === 'admin') renderAdminTable();
+        }
+        updateKPIs();
+
+    } catch (error) {
+        console.error(`Erro fetch (${dateKey}):`, error);
+        if (!isBackground) showToast('Erro de conexão.', 'error');
+    } finally {
+        if (!isBackground) setLoading(false);
+    }
+}
+
+// 4. SINCRONIZAR MÊS INTEIRO
+async function syncMonthData(baseDateKey) {
+    if(!baseDateKey) return;
+    
+    const parts = baseDateKey.split('-');
+    const monthKey = `${parts[0]}-${parts[1]}`; 
+    
+    if (DASH_CACHE[monthKey] && DASH_CACHE[monthKey].loaded) {
+        console.log("Mês já carregado (Cache).");
+        return; 
+    }
+
+    setLoading(true);
+    console.log(`Buscando mês inteiro: ${monthKey}`);
+
+    try {
+        const response = await fetch(`${API_URL}?month=${monthKey}`, { redirect: "follow" });
+        const data = await response.json();
+        
+        if (data.error) throw new Error(data.error);
+
+        Object.keys(appointments).forEach(k => {
+            if(k.startsWith(monthKey)) delete appointments[k];
+        });
+
+        processRawData(data);
+        
+        if(!DASH_CACHE[monthKey]) recalculateMonthCache(monthKey);
+        DASH_CACHE[monthKey].loaded = true;
+
+        // Atualiza a tela assim que os dados chegarem
+        if (selectedDateKey.startsWith(monthKey)) {
+            renderSlotsList();
+            if (currentView === 'admin') renderAdminTable();
+            updateKPIs();
+        }
+
     } catch (e) {
-        photoCache[nome] = null;
-        buscandoAgora.delete(nome);
+        console.error("Erro syncMonth:", e);
+        showToast("Erro ao sincronizar mês.", "error");
+    } finally {
+        setLoading(false);
     }
-    return null;
 }
 
-function getAvatarHTML(nomeStr, index) {
-    if (!nomeStr) return '';
-    const nomeTrim = formatarNomeProprio(nomeStr.trim());
-    if (!nomeTrim || !nomeTrim.includes(' ')) return '';
-    const url = photoCache[nomeTrim];
-    const colorIndex = nomeTrim.length % 6;
-    const fallbackClass = `av-color-${colorIndex}`;
-    const zIdx = 10 - index;
-    if (url) return `<div class="avatar-stack-item" style="z-index:${zIdx}" title="${nomeTrim}" data-name="${nomeTrim}"><img src="${url}" alt="${nomeTrim[0]}" onerror="this.style.display='none';this.parentNode.classList.add('${fallbackClass}');this.parentNode.innerText='${nomeTrim[0]}' "></div>`;
-    if (photoCache[nomeTrim] === undefined) buscarFoto(nomeTrim);
-    return `<div class="avatar-stack-item ${fallbackClass}" style="z-index:${zIdx}" title="${nomeTrim}" data-name="${nomeTrim}">${nomeTrim[0].toUpperCase()}</div>`;
-}
+// 5. ENVIAR DADOS (POST)
+async function sendUpdateToSheet(payload) {
+    try {
+        const response = await fetch(API_URL, {
+            method: "POST",
+            redirect: "follow",
+            body: JSON.stringify(payload),
+            headers: { "Content-Type": "text/plain;charset=utf-8" }
+        });
 
-function checkPinnedExpiration() {
-    const now = Date.now();
-    const oneDay = 24 * 60 * 60 * 1000;
-    const validPins = pinnedItems.filter(p => (now - p.time) < oneDay);
-    if (validPins.length !== pinnedItems.length) {
-        pinnedItems = validPins;
-        localStorage.setItem('fav_pinned_tasks', JSON.stringify(pinnedItems));
-    }
-    renderPinnedSection();
-}
+        const result = await response.json();
 
-function togglePin(id, e) {
-    if (e) e.stopPropagation();
-    const now = Date.now();
-    const idx = pinnedItems.findIndex(p => String(p.id) === String(id));
-
-    if (idx > -1) {
-        const pinnedCard = document.querySelector(`.pinned-card[onclick*="${id}"]`);
-        if (pinnedCard) {
-            pinnedCard.classList.add('animate-leave');
-            setTimeout(() => {
-                pinnedItems.splice(idx, 1);
-                localStorage.setItem('fav_pinned_tasks', JSON.stringify(pinnedItems));
-                renderPinnedSection();
-            }, 280);
+        if (result.status === 'success') {
+            return true;
         } else {
-            pinnedItems.splice(idx, 1);
-            localStorage.setItem('fav_pinned_tasks', JSON.stringify(pinnedItems));
-            renderPinnedSection();
+            throw new Error(result.message || "Erro no servidor.");
+        }
+
+    } catch (error) {
+        console.error("Erro no envio:", error);
+        return false;
+    }
+}
+
+// --- SISTEMA DE LOGIN ---
+
+function attemptLogin() {
+    const input = document.getElementById('login-token');
+    const val = input.value.trim();
+    const err = document.getElementById('login-error');
+
+    if (validTokensMap.hasOwnProperty(val)) {
+        currentUserToken = val;
+        const userData = validTokensMap[val];
+        currentUserRole = userData.role || 'USER';
+
+        input.style.borderColor = '#16a34a';
+        input.style.color = '#16a34a';
+
+        setTimeout(() => {
+            closeLoginModal();
+            if (pendingAction) {
+                const action = pendingAction;
+                pendingAction = null;
+                action();
+            }
+        }, 400);
+    } else {
+        currentUserToken = null;
+        currentUserRole = null;
+        err.style.display = 'block';
+        input.style.borderColor = '#dc2626';
+        input.style.color = '#dc2626';
+        input.focus();
+        
+        const card = document.querySelector('#login-modal .modal-card');
+        card.style.animation = 'none';
+        card.offsetHeight; 
+        card.style.animation = 'shake 0.4s cubic-bezier(.36,.07,.19,.97) both';
+    }
+}
+
+function handleLoginKey(e) { if (e.key === 'Enter') attemptLogin(); }
+
+function requestToken(callback, customTitle = null) {
+    pendingAction = callback;
+    const modal = document.getElementById('login-modal');
+    const input = document.getElementById('login-token');
+    modal.querySelector('h2').innerText = customTitle || "Acesso Restrito";
+    input.value = '';
+    document.getElementById('login-error').style.display = 'none';
+    input.style.borderColor = '';
+    input.style.color = '';
+    modal.style.display = 'flex';
+    input.focus();
+}
+
+function closeLoginModal() {
+    document.getElementById('login-modal').style.display = 'none';
+    document.getElementById('login-token').value = '';
+}
+
+// --- NAVEGAÇÃO ---
+
+function switchView(view) {
+    if (view === 'admin') {
+        if (!currentUserToken) {
+            requestToken(() => executeSwitch('admin'), "Acesso Gestor");
+        } else {
+            executeSwitch('admin');
         }
     } else {
-        pinnedItems.push({ id: id, time: now });
-        localStorage.setItem('fav_pinned_tasks', JSON.stringify(pinnedItems));
-        renderPinnedSection();
-    }
-
-    const pinBtn = document.querySelector(`.card .btn-pin-card[onclick*="${id}"]`);
-    if (pinBtn) {
-        pinBtn.classList.toggle('active');
-        const isPinnedNow = pinBtn.classList.contains('active');
-        pinBtn.setAttribute('title', isPinnedNow ? 'Desafixar' : 'Fixar por 24h');
+        currentUserToken = null; 
+        currentUserRole = null;
+        executeSwitch('booking');
     }
 }
 
-function renderPinnedSection() {
-    const container = document.getElementById('pinnedSection');
-    const gridPin = document.getElementById('pinnedGrid');
-    const pinnedTasks = [];
-    pinnedItems.forEach(p => {
-        const t = tasks.find(x => String(x.id) === String(p.id));
-        if (t) pinnedTasks.push(t);
-    });
-
-    if (pinnedTasks.length === 0) {
-        container.classList.remove('visible');
-        setTimeout(() => { if (!container.classList.contains('visible')) container.style.display = 'none'; }, 300);
-        return;
+function executeSwitch(view) {
+    if (view === 'admin' && currentUserRole !== 'GESTOR') {
+        return showToast('Permissão insuficiente.', 'error');
     }
 
-    container.style.display = 'flex';
-    requestAnimationFrame(() => container.classList.add('visible'));
+    currentView = view;
+    document.querySelectorAll('.view-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById(`btn-view-${view}`).classList.add('active');
 
-    gridPin.innerHTML = "";
+    document.getElementById('view-booking').style.display = 'none';
+    document.getElementById('view-admin').style.display = 'none';
+    document.getElementById('section-stats').style.display = 'none';
 
-    pinnedTasks.forEach(t => {
-        const card = document.createElement('div');
-        card.className = 'pinned-card animate-enter';
-        card.setAttribute('onclick', `abrirModal('${t.id}', event)`);
-        const st = normalizarTexto(t.status);
-        const corStatus = st === 'concluido' ? 'var(--status-done)' : (st === 'andamento' ? 'var(--warning)' : 'var(--text-light)');
-        card.innerHTML = `
-            <div style="font-size:0.65rem; font-weight:800; color:${corStatus}; text-transform:uppercase; margin-bottom:5px;">
-                ${t.status || 'Pendente'}
-            </div>
-            <div style="font-weight:700; font-size:0.85rem; color:var(--text-main); margin-bottom:5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding-right:20px;">
-                ${t.title}
-            </div>
-            <div style="font-size:0.75rem; color:var(--text-light);">
-                ${t.unit || 'N/A'}
-            </div>
-            <div class="btn-pin-card active" onclick="togglePin('${t.id}', event)" title="Desafixar">
-                <span class="material-icons-round" style="font-size:16px">push_pin</span>
-            </div>
-        `;
-        gridPin.appendChild(card);
-    });
+    const sidebar = document.querySelector('.listing-column');
+
+    if (view === 'booking') {
+        document.getElementById('view-booking').style.display = 'block';
+        document.getElementById('section-stats').style.display = 'block';
+        sidebar.classList.remove('locked');
+        updateKPIs(); 
+    } else {
+        document.getElementById('view-admin').style.display = 'block';
+        renderAdminTable();
+        sidebar.classList.add('locked');
+    }
 }
 
-function autoResize(el) {
-    el.style.height = 'auto';
-    el.style.height = el.scrollHeight + 'px';
+// --- INICIALIZAÇÃO OTIMIZADA (COM TELA DE CARREGAMENTO) ---
+async function initData() {
+    fetchValidTokens();
+    
+    const picker = document.getElementById('sidebar-date-picker');
+    if (picker) picker.value = selectedDateKey; 
+    
+    const dashPicker = document.getElementById('dashboard-month-picker');
+    if (dashPicker) {
+        dashPicker.value = selectedDateKey.substring(0, 7);
+        dashPicker.addEventListener('change', (e) => {
+            // Toast removido conforme solicitado
+            syncMonthData(e.target.value); 
+        });
+    }
+
+    // Await para garantir que o splash screen cubra o carregamento inicial
+    await syncMonthData(selectedDateKey);
+
+    // Remove o Splash Screen com fade-out suave
+    const splash = document.getElementById('app-splash-screen');
+    if (splash) {
+        splash.style.opacity = '0';
+        setTimeout(() => {
+            splash.remove();
+        }, 500); // Aguarda a transição CSS antes de remover do DOM
+    }
+
+    // Renderiza o que tem
+    renderSlotsList();
+    updateKPIs();
 }
 
-function abrirModalNomes(e = null) {
-    if (e) e.stopPropagation();
-    const container = document.getElementById('namesListContainer');
+function updateSidebarDate() {
+    const picker = document.getElementById('sidebar-date-picker');
+    if (picker && picker.value) {
+        selectedDateKey = picker.value;
+    }
+    document.getElementById('room-filter').value = 'ALL';
+    document.getElementById('location-filter').value = 'ALL';
+
+    const monthKey = selectedDateKey.substring(0, 7);
+    
+    if (DASH_CACHE[monthKey] && DASH_CACHE[monthKey].loaded) {
+        renderSlotsList();
+    } else {
+        setLoading(true);
+        syncMonthData(selectedDateKey).then(() => {
+            renderSlotsList();
+            setLoading(false);
+        });
+    }
+}
+
+function changeDate(delta) {
+    const current = new Date(selectedDateKey + 'T00:00:00');
+    current.setDate(current.getDate() + delta);
+    const y = current.getFullYear();
+    const m = String(current.getMonth() + 1).padStart(2, '0');
+    const d = String(current.getDate()).padStart(2, '0');
+
+    selectedDateKey = `${y}-${m}-${d}`;
+    document.getElementById('sidebar-date-picker').value = selectedDateKey;
+    updateSidebarDate();
+}
+
+// --- UI LISTA DE VAGAS ---
+
+function handleSlotClick(slot, key) {
+    currentSlotId = slot.id;
+    currentDateKey = key;
+    renderSlotsList();
+
+    if (currentView === 'booking') {
+        openBookingModal(slot, key, slot.status === 'OCUPADO');
+    }
+}
+
+function updateFilterOptions() {
+    const slots = appointments[selectedDateKey] || [];
+
+    const rooms = [...new Set(slots.map(s => s.room))].sort();
+    const locations = [...new Set(slots.map(s => s.location || 'Iputinga'))].sort();
+
+    const roomSelect = document.getElementById('room-filter');
+    const locSelect = document.getElementById('location-filter');
+
+    if (roomSelect.options.length <= 1) {
+        roomSelect.innerHTML = '<option value="ALL">Todas Salas</option>';
+        rooms.forEach(r => {
+            const opt = document.createElement('option');
+            opt.value = r; opt.textContent = r; roomSelect.appendChild(opt);
+        });
+    }
+    
+    if (locSelect.options.length <= 1) {
+        locSelect.innerHTML = '<option value="ALL">Todas Unidades</option>';
+        locations.forEach(l => {
+            const opt = document.createElement('option');
+            opt.value = l; opt.textContent = l; locSelect.appendChild(opt);
+        });
+    }
+}
+
+function applyFilters() { renderSlotsList(); }
+
+function renderSlotsList() {
+    updateFilterOptions();
+    const container = document.getElementById('slots-list-container');
     container.innerHTML = '';
-    let lista = [];
-    for (let k in dbNomes) {
-        dbNomes[k].forEach(last => lista.push(k + " " + last));
-    }
-    lista.sort();
-    if (lista.length === 0) container.innerHTML = '<div style="padding:20px;text-align:center;color:#aaa;">Nenhum nome encontrado.</div>';
-    else {
-        lista.forEach(n => {
-            const item = document.createElement('div');
-            item.className = 'name-list-item';
-            item.innerHTML = `<span>${n}</span> <span class="material-icons-round" style="font-size:18px; color:var(--brand-cyan)">add_circle_outline</span>`;
-            item.onclick = () => {
-                const input = document.getElementById('inpResp');
-                let valorAtual = input.value ? input.value.trimEnd() : "";
-                input.value = valorAtual.length > 0 ? (valorAtual.endsWith(',') ? valorAtual + " " + n : valorAtual + ", " + n) : n;
-                autoResize(input);
-                gerenciarInputResponsavel(input);
-                showToast(n + " adicionado!", "success");
-            };
-            container.appendChild(item);
+
+    let slots = appointments[selectedDateKey] || [];
+
+    const locFilter = document.getElementById('location-filter').value;
+    const roomFilter = document.getElementById('room-filter').value;
+    const shiftFilter = document.getElementById('shift-filter').value;
+
+    if (locFilter !== 'ALL') slots = slots.filter(s => (s.location || 'Iputinga') === locFilter);
+    if (roomFilter !== 'ALL') slots = slots.filter(s => String(s.room) === String(roomFilter));
+
+    if (shiftFilter !== 'ALL') {
+        slots = slots.filter(s => {
+            if (shiftFilter === 'MANHA') return s.time <= '11:59';
+            if (shiftFilter === 'TARDE') return s.time >= '12:00';
+            return true;
         });
     }
-    document.getElementById('modalNomes').style.display = 'flex';
-    setTimeout(() => document.getElementById('modalNomes').classList.add('active'), 10);
-}
 
-function fecharModalNomes() {
-    document.getElementById('modalNomes').classList.remove('active');
-    setTimeout(() => document.getElementById('modalNomes').style.display = 'none', 300);
-}
-
-function gerenciarInputResponsavel(input) {
-    clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(() => atualizarAvatarsModal(input.value), 1500);
-}
-
-async function atualizarAvatarsModal(valorInput) {
-    const container = document.getElementById('modalAvatarList');
-    if (!valorInput) {
-        container.innerHTML = '';
-        return;
-    }
-    const nomesFormatados = valorInput.split(/[\n,]/).filter(n => n.trim().length > 0).map(n => formatarNomeProprio(n.trim()));
-
-    Array.from(container.children).forEach(el => {
-        const nomeEl = el.querySelector('.avatar-wrapper') ? el.querySelector('.avatar-wrapper').dataset.name : el.getAttribute('data-name');
-        if (!nomesFormatados.includes(nomeEl)) el.remove();
+    slots.sort((a, b) => {
+        if (a.date !== b.date) return a.date.localeCompare(b.date);
+        if (a.status !== b.status) return a.status === 'LIVRE' ? -1 : 1;
+        return a.time.localeCompare(b.time);
     });
 
-    for (const n of nomesFormatados) {
-        if (!n.includes(' ')) continue;
-        const jaExiste = Array.from(container.children).some(el => {
-            const nomeEl = el.querySelector('.avatar-wrapper') ? el.querySelector('.avatar-wrapper').dataset.name : el.getAttribute('data-name');
-            return nomeEl === n;
+    if (slots.length === 0) {
+        container.innerHTML = `
+        <div style="text-align:center; color:#64748b; padding:40px; display:flex; flex-direction:column; align-items:center; gap:16px">
+            <div style="background:#f1f5f9; padding:16px; border-radius:50%">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+            </div>
+            <div>Sem agendas neste dia.</div>
+        </div>`;
+        return;
+    }
+
+    slots.forEach(slot => {
+        const item = document.createElement('div');
+        item.className = 'slot-item';
+        if (currentSlotId === slot.id) item.classList.add('active');
+
+        let statusClass = slot.status === 'LIVRE' ? 'free' : 'booked';
+        let statusText = slot.status === 'LIVRE' ? 'Disponível' : 'Ocupado';
+        let doctorName = slot.doctor ? `<b>${slot.doctor.split(' ')[0]} ${slot.doctor.split(' ')[1] || ''}</b>` : 'Sem Médico';
+
+        const dayPart = slot.date.split('-')[2];
+        const monthPart = slot.date.split('-')[1];
+        const formattedDate = `${dayPart}/${monthPart}`;
+
+        let mainInfo = `
+        <div style="flex:1">
+            <div style="display:flex; justify-content:space-between; align-items:center; width:100%">
+                <div class="slot-time" style="display:flex; gap:8px; align-items:center;">
+                    <span style="background:#e2e8f0; color:#475569; padding:2px 6px; border-radius:4px; font-size:0.75rem; font-weight:600;">${formattedDate}</span>
+                    <span>${slot.time}</span>
+                </div>
+                 <div class="slot-room-badge">Sala ${slot.room}</div>
+            </div>
+            <div style="font-size:0.8rem; color:var(--text-secondary); margin-top:4px;">${slot.location || 'Iputinga'}</div>
+            <div style="font-size:0.8rem; color:var(--text-secondary); margin-top:2px;">${doctorName}</div>
+            <div style="font-size:0.75rem; color:var(--text-light); margin-top:2px;">${slot.specialty || '-'}</div>
+        `;
+
+        if (slot.status === 'OCUPADO') {
+            mainInfo += `
+            <div class="slot-detail-box">
+                <div class="detail-patient">${slot.patient}</div>
+                <div style="font-size:0.75rem; color:var(--text-light)">Pront: ${slot.record || '?'}</div>
+                <div class="detail-meta"><span class="badge-kpi">${slot.contract}</span></div>
+            </div>
+            <div style="font-size:0.65rem; color:#94a3b8; text-align:right; margin-top:4px; font-style:italic">
+                ${slot.createdBy ? 'Agendado por: ' + slot.createdBy : ''}
+            </div>
+            `;
+        }
+        mainInfo += `</div>`;
+
+        item.innerHTML = `
+        ${mainInfo}
+        <div style="display:flex; flex-direction:column; align-items:flex-end; gap:4px">
+             <div class="slot-status-badge ${statusClass}">${statusText}</div>
+             ${slot.detail ? `<div style="font-size:0.7rem; color:var(--text-secondary); margin-top:4px">${slot.detail}</div>` : ''}
+        </div>`;
+
+        item.onclick = () => handleSlotClick(slot, slot.date);
+        container.appendChild(item);
+    });
+}
+
+// --- GERAÇÃO EM LOTE ---
+
+function bulkCreateSlots() {
+    const dateVal = document.getElementById('bulk-date').value;
+    const location = document.getElementById('bulk-location').value;
+    const room = document.getElementById('bulk-room').value;
+    const group = document.getElementById('bulk-group').value;
+    const doctor = document.getElementById('bulk-doctor').value;
+    const startTime = document.getElementById('bulk-start-time').value;
+    const endTime = document.getElementById('bulk-end-time').value;
+    const qty = parseInt(document.getElementById('bulk-qty').value);
+
+    if (!dateVal || !startTime || !endTime || !doctor || isNaN(qty) || qty < 1) {
+        return showToast('Preencha todos os campos.', 'error');
+    }
+
+    const [h1, m1] = startTime.split(':').map(Number);
+    const [h2, m2] = endTime.split(':').map(Number);
+    const startMins = h1 * 60 + m1;
+    const endMins = h2 * 60 + m2;
+
+    if (endMins <= startMins) {
+        return showToast('Horário final inválido.', 'error');
+    }
+
+    const slotDuration = (endMins - startMins) / qty;
+    let slotsToSend = [];
+
+    for (let i = 0; i < qty; i++) {
+        const currentSlotMins = Math.round(startMins + (i * slotDuration));
+        const h = Math.floor(currentSlotMins / 60);
+        const m = currentSlotMins % 60;
+        const timeStr = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+
+        slotsToSend.push({
+            id: Date.now() + i,
+            date: dateVal,
+            time: timeStr,
+            room: room || '1',
+            location: location,
+            doctor: doctor,
+            specialty: group,
+            procedure: group,
+            createdBy: currentUserToken
         });
-        if (!jaExiste) {
-            const wrapper = document.createElement('div');
-            wrapper.className = 'avatar-wrapper animate-in';
-            wrapper.setAttribute('data-name', n);
-            const div = document.createElement('div');
-            div.className = `modal-avatar-big av-color-${n.length % 6}`;
-            div.innerText = n[0].toUpperCase();
-            wrapper.appendChild(div);
-            container.appendChild(wrapper);
-            buscarFoto(n).then(url => {
-                if (url) {
-                    div.remove();
-                    const img = document.createElement('img');
-                    img.src = url;
-                    img.className = 'modal-avatar-big';
-                    wrapper.appendChild(img);
+    }
+
+    showMessageModal('Processando', `Criando ${qty} vagas...`, 'loading');
+
+    const payload = { action: "create_bulk", data: slotsToSend };
+
+    sendUpdateToSheet(payload).then(success => {
+        closeMessageModal();
+        if (success) {
+            showToast(`${qty} vagas criadas!`, 'success');
+            
+            processRawData(slotsToSend.map(s => ({...s, status: 'LIVRE', created_by: currentUserToken})));
+            
+            selectedDateKey = dateVal;
+            document.getElementById('sidebar-date-picker').value = selectedDateKey;
+            renderSlotsList();
+            updateKPIs();
+            executeSwitch('booking');
+        }
+    });
+}
+
+// --- ADMIN TABLE ---
+
+function renderAdminTable() {
+    const tbody = document.getElementById('admin-table-body');
+    if (!tbody) return;
+
+    const currentlyChecked = Array.from(document.querySelectorAll('.slot-checkbox:checked'))
+                                  .map(cb => String(cb.value));
+
+    tbody.innerHTML = '';
+
+    const targetMonth = selectedDateKey.substring(0, 7);
+    const slots = [];
+    
+    Object.keys(appointments).forEach(k => {
+        if(k.startsWith(targetMonth)) slots.push(...appointments[k]);
+    });
+
+    slots.sort((a, b) => {
+        if (a.date !== b.date) return a.date.localeCompare(b.date);
+        return a.time.localeCompare(b.time);
+    });
+
+    slots.forEach(slot => {
+        const tr = document.createElement('tr');
+        
+        let statusHtml = slot.status === 'OCUPADO' 
+            ? `<span style="background:#fee2e2; color:#dc2626; padding:2px 8px; border-radius:12px; font-weight:600; font-size:0.75rem">OCUPADO</span>`
+            : `<span style="background:#dcfce7; color:#16a34a; padding:2px 8px; border-radius:12px; font-weight:600; font-size:0.75rem">LIVRE</span>`;
+        
+        const dateFmt = `${slot.date.split('-')[2]}/${slot.date.split('-')[1]}`;
+        const isChecked = currentlyChecked.includes(String(slot.id)) ? 'checked' : '';
+
+        tr.innerHTML = `
+            <td style="text-align:center">
+                <input type="checkbox" class="slot-checkbox" value="${slot.id}" ${isChecked} onchange="updateDeleteButton()">
+            </td>
+            <td>${dateFmt}</td>
+            <td>${slot.time}</td>
+            <td>${slot.room}</td>
+            <td>
+                <div style="font-weight:600; font-size:0.85rem">${slot.doctor}</div>
+                <div style="font-size:0.75rem; color:var(--text-light)">${slot.specialty}</div>
+            </td>
+            <td>${statusHtml}</td>
+            <td style="text-align:center">
+                <button class="btn btn-danger btn-delete-single" style="padding:4px 8px; font-size:0.75rem" onclick="deleteSlot('${slot.id}')">Excluir</button>
+            </td>
+        `;
+        tbody.appendChild(tr);
+    });
+
+    updateDeleteButton();
+    
+    const masterCheck = document.getElementById('check-all-slots');
+    if(masterCheck) {
+        const total = document.querySelectorAll('.slot-checkbox').length;
+        const checked = document.querySelectorAll('.slot-checkbox:checked').length;
+        masterCheck.checked = (total > 0 && total === checked);
+    }
+}
+
+function toggleAllSlots(source) {
+    document.querySelectorAll('.slot-checkbox').forEach(cb => cb.checked = source.checked);
+    updateDeleteButton();
+}
+
+function updateDeleteButton() {
+    const total = document.querySelectorAll('.slot-checkbox:checked').length;
+    const btn = document.getElementById('btn-delete-selected');
+    const countSpan = document.getElementById('count-selected');
+    const singleBtns = document.querySelectorAll('.btn-delete-single');
+
+    singleBtns.forEach(b => {
+        b.style.opacity = total > 0 ? '0.3' : '1';
+        b.style.pointerEvents = total > 0 ? 'none' : 'auto';
+    });
+
+    if (btn) {
+        if (total > 0) {
+            btn.style.display = 'inline-flex';
+            if (countSpan) countSpan.innerText = total;
+        } else {
+            btn.style.display = 'none';
+        }
+    }
+}
+
+async function deleteSelectedSlots() {
+    const checkboxes = document.querySelectorAll('.slot-checkbox:checked');
+    const ids = Array.from(checkboxes).map(cb => cb.value);
+    if (ids.length === 0) return;
+
+    showMessageModal('Confirmação', `Deseja excluir ${ids.length} vagas selecionadas?`, 'confirm', () => {
+        processBatchDelete(ids);
+    });
+}
+
+async function processBatchDelete(ids) {
+    showMessageModal('Processando', `Iniciando exclusão...`, 'loading');
+    const msgBody = document.getElementById('msg-body');
+    
+    let successCount = 0;
+    const total = ids.length;
+
+    for (let i = 0; i < total; i++) {
+        const id = ids[i];
+        if(msgBody) msgBody.innerText = `Excluindo ${i + 1} de ${total}...`;
+        await new Promise(r => setTimeout(r, 20));
+
+        try {
+            const response = await fetch(API_URL, {
+                method: "POST",
+                redirect: "follow",
+                body: JSON.stringify({ action: "delete", id: id }),
+                headers: { "Content-Type": "text/plain;charset=utf-8" }
+            });
+            const result = await response.json();
+            if (result.status === 'success') {
+                successCount++;
+                
+                Object.keys(appointments).forEach(key => {
+                    appointments[key] = appointments[key].filter(s => String(s.id) !== String(id));
+                });
+            }
+        } catch (e) { console.error("Erro delete:", e); }
+    }
+
+    recalculateMonthCache(selectedDateKey.substring(0, 7));
+
+    closeMessageModal();
+    renderSlotsList(); 
+    renderAdminTable(); 
+    updateKPIs(); 
+
+    showToast(`${successCount} vagas excluídas.`, 'success');
+}
+
+function deleteSlot(id) {
+    const monthKey = selectedDateKey.substring(0,7);
+    let slot = null;
+    
+    Object.keys(appointments).forEach(k => {
+        if(!slot && k.startsWith(monthKey)) slot = appointments[k].find(s => String(s.id) === String(id));
+    });
+
+    let msg = 'Excluir vaga permanentemente?';
+    if (slot && slot.status === 'OCUPADO') {
+        msg = `<b>ATENÇÃO:</b> Vaga com paciente <b>${slot.patient}</b>. Excluir removerá ambos.`;
+    }
+
+    showMessageModal('Excluir', msg, 'confirm', async () => {
+        closeMessageModal();
+        setLoading(true); 
+        
+        const success = await sendUpdateToSheet({ action: "delete", id: id });
+        if (success) {
+             Object.keys(appointments).forEach(key => {
+                appointments[key] = appointments[key].filter(s => String(s.id) !== String(id));
+            });
+
+            recalculateMonthCache(selectedDateKey.substring(0, 7));
+            renderSlotsList();
+            renderAdminTable();
+            updateKPIs();
+
+            showToast('Vaga excluída.', 'success');
+        }
+        setLoading(false);
+    });
+}
+
+// --- MODAL DE AGENDAMENTO ---
+
+function openBookingModal(slot, key, isEdit = false) {
+    const modal = document.getElementById('booking-modal');
+
+    document.getElementById('bk-record').value = slot.record || '';
+    document.getElementById('bk-patient').value = slot.patient || '';
+    document.getElementById('bk-contract').value = slot.contract || '';
+    document.getElementById('bk-procedure').value = slot.procedure || slot.specialty || '';
+    document.getElementById('bk-detail').value = slot.detail || '';
+    document.getElementById('bk-eye').value = slot.eye || '';
+    document.getElementById('selected-slot-id').value = slot.id;
+
+    let isReg = slot.regulated;
+    if (isReg === undefined || isReg === null) isReg = true;
+    if (slot.status === 'LIVRE') isReg = true;
+
+    const radios = document.getElementsByName('bk-regulated');
+    const radioVal = isReg ? 'yes' : 'no';
+    for (const r of radios) { 
+        if (r.value === radioVal) r.checked = true; 
+    }
+
+    const dateFmt = `${slot.date.split('-')[2]}/${slot.date.split('-')[1]}`;
+    document.getElementById('modal-slot-info').innerText = `${dateFmt} • ${slot.time} • ${slot.doctor}`;
+    
+    document.getElementById('warning-box').style.display = 'none';
+
+    const btnArea = document.getElementById('action-buttons-area');
+    if (isEdit) {
+        btnArea.innerHTML = `<button class="btn btn-danger" onclick="cancelSlotBooking()">Liberar Vaga</button>`;
+    } else {
+        btnArea.innerHTML = `<button class="btn btn-primary" onclick="confirmBookingFromModal()">Confirmar</button>`;
+    }
+
+    modal.classList.add('open');
+    checkWarning();
+}
+
+function closeModal() { document.getElementById('booking-modal').classList.remove('open'); }
+
+function checkWarning() {
+    const contract = document.getElementById('bk-contract').value;
+    const warningBox = document.getElementById('warning-box');
+    const radios = document.getElementsByName('bk-regulated');
+    const isMunicipal = CONTRACTS.MUNICIPAL.includes(contract);
+    
+    for (const r of radios) r.disabled = isMunicipal;
+
+    if (!contract || isMunicipal) {
+        warningBox.style.display = 'none';
+        return;
+    }
+
+    // Projeção Rápida
+    let isNewBookingRegulated = true;
+    for (const r of radios) { if (r.checked && r.value === 'no') isNewBookingRegulated = false; }
+
+    const monthKey = selectedDateKey.substring(0,7);
+    const stats = DASH_CACHE[monthKey];
+    
+    if(!stats || stats.total === 0) return;
+
+    // Pega contagens atuais do cache
+    let countReg = stats.counts.Regulado.Total;
+    let countInt = stats.counts.Interno.Total;
+    const totalSlots = stats.total;
+
+    if (isNewBookingRegulated) countReg++;
+    else countInt++;
+
+    const pctReg = (countReg / totalSlots) * 100;
+    const pctInt = (countInt / totalSlots) * 100;
+
+    let showWarning = false;
+    let msg = "";
+
+    if (isNewBookingRegulated && pctReg > 60) {
+        showWarning = true;
+        msg = `Atenção: Regulados atingirão <b>${pctReg.toFixed(1)}%</b> (Meta: 60%)`;
+    } else if (!isNewBookingRegulated && pctInt > 40) {
+        showWarning = true;
+        msg = `Atenção: Internos atingirão <b>${pctInt.toFixed(1)}%</b> (Meta: 40%)`;
+    }
+
+    if (showWarning) {
+        warningBox.style.display = 'flex';
+        if(warningBox.querySelector('div:last-child > div:last-child')) {
+             warningBox.querySelector('div:last-child > div:last-child').innerHTML = msg;
+        } else {
+             const div = document.createElement('div');
+             div.innerHTML = msg;
+             warningBox.appendChild(div);
+        }
+    } else {
+        warningBox.style.display = 'none';
+    }
+}
+
+function confirmBookingFromModal() {
+    const id = document.getElementById('selected-slot-id').value;
+    const record = document.getElementById('bk-record').value;
+    const patient = document.getElementById('bk-patient').value;
+    const contract = document.getElementById('bk-contract').value;
+    const procedure = document.getElementById('bk-procedure').value;
+    const detail = document.getElementById('bk-detail').value;
+    const eye = document.getElementById('bk-eye').value;
+
+    if (!patient || !contract || !record || !detail || !eye) {
+        return showToast('Preencha todos os campos.', 'error');
+    }
+
+    const radios = document.getElementsByName('bk-regulated');
+    let isRegulated = true;
+    const isMunicipal = CONTRACTS.MUNICIPAL.includes(contract);
+
+    if (isMunicipal) {
+        isRegulated = null; 
+    } else {
+        for (const r of radios) { if (r.checked && r.value === 'no') isRegulated = false; }
+    }
+
+    const summary = `
+        <div style="text-align:left; background:#f8fafc; padding:16px; border-radius:8px; font-size:0.9rem; border:1px solid #e2e8f0">
+            <div><b>Paciente:</b> ${patient}</div>
+            <div><b>Contrato:</b> ${contract}</div>
+            <div><b>Regulado:</b> ${isRegulated === true ? 'SIM' : (isRegulated === false ? 'NÃO' : '-')}</div>
+        </div>
+        <div style="margin-top:16px; font-weight:600">Confirmar?</div>
+    `;
+
+    showMessageModal('Confirmação', summary, 'confirm', () => {
+        requestToken(async () => {
+            Object.keys(appointments).forEach(dateKey => {
+                const slotIndex = appointments[dateKey].findIndex(s => String(s.id) === String(id));
+                if (slotIndex !== -1) {
+                    appointments[dateKey][slotIndex] = {
+                        ...appointments[dateKey][slotIndex],
+                        status: 'OCUPADO',
+                        patient: patient,
+                        record: record,
+                        contract: contract,
+                        regulated: isRegulated,
+                        procedure: procedure,
+                        detail: detail,
+                        eye: eye,
+                        createdBy: currentUserToken
+                    };
                 }
             });
-        }
-    }
-}
 
-function capturarEstadoAtual() {
-    return JSON.stringify({
-        title: document.getElementById('inpTitle').value,
-        origin: document.getElementById('inpOrigin').value,
-        unit: document.getElementById('inpUnit').value,
-        priority: document.getElementById('inpPriority').value,
-        desc: document.getElementById('inpProblem').value,
-        why: document.getElementById('inpWhy').value,
-        how: document.getElementById('inpHow').value,
-        cost: document.getElementById('inpCost').value,
-        obs: document.getElementById('inpObs').value,
-        resp: document.getElementById('inpResp').value,
-        start: document.getElementById('inpDateStart').value,
-        due: document.getElementById('inpDateDue').value,
-        status: document.getElementById('selectedStatus').value,
-        steps: tempSteps,
-        newStepT: document.getElementById('newStepTitle').value,
-        newStepD: document.getElementById('newStepDesc').value,
-        newStepDt: document.getElementById('newStepDate').value,
-        newFilesLen: newFiles.length,
-        deletedFilesLen: filesToDelete.length
-    });
-}
+            recalculateMonthCache(selectedDateKey.substring(0, 7));
+            closeMessageModal();
+            closeModal();
+            renderSlotsList();
+            updateKPIs();
+            showToast("Agendamento realizado!", "success");
 
-function destacarCamposModificados(estadoDraft, estadoOriginal) {
-    document.querySelectorAll('.modified-field').forEach(el => el.classList.remove('modified-field'));
-    const draft = JSON.parse(estadoDraft);
-    const orig = JSON.parse(estadoOriginal);
-    const mapCampos = {
-        'title': 'inpTitle',
-        'origin': 'inpOrigin',
-        'desc': 'inpProblem',
-        'why': 'inpWhy',
-        'how': 'inpHow',
-        'cost': 'inpCost',
-        'obs': 'inpObs',
-        'resp': 'inpResp'
-    };
-    for (const key in mapCampos) {
-        if (draft[key] !== orig[key]) {
-            const el = document.getElementById(mapCampos[key]);
-            if (el) el.classList.add('modified-field');
-        }
-    }
-}
-
-function fecharModal(isSaving = false) {
-    const m = document.getElementById('modalOverlay');
-    if (!isSaving) {
-        const id = document.getElementById('taskId').value;
-        const title = document.getElementById('inpTitle').value;
-        const desc = document.getElementById('inpProblem').value;
-        const estadoAtual = capturarEstadoAtual();
-        if (estadoAtual !== estadoInicialFormulario && (title || desc)) {
-            draftData = {
+            const payload = {
+                action: "update",
                 id: id,
-                title: title,
-                origin: document.getElementById('inpOrigin').value,
-                unit: document.getElementById('inpUnit').value,
-                priority: document.getElementById('inpPriority').value,
-                problem: desc,
-                why: document.getElementById('inpWhy').value,
-                how: document.getElementById('inpHow').value,
-                cost: document.getElementById('inpCost').value,
-                obs: document.getElementById('inpObs').value,
-                resp: document.getElementById('inpResp').value,
-                dateStart: document.getElementById('inpDateStart').value,
-                dateDue: document.getElementById('inpDateDue').value,
-                status: document.getElementById('selectedStatus').value,
-                steps: tempSteps,
-                newStepT: document.getElementById('newStepTitle').value,
-                newStepD: document.getElementById('newStepDesc').value,
-                newStepDt: document.getElementById('newStepDate').value,
-                newFiles: newFiles,
-                originalState: estadoInicialFormulario
+                status: 'OCUPADO',
+                patient: patient,
+                record: record,
+                contract: contract,
+                regulated: isRegulated,
+                procedure: procedure,
+                detail: detail,
+                eye: eye,
+                createdBy: currentUserToken
             };
-            showToast("Rascunho salvo temporariamente", "info");
-        } else {
-            if (draftData && draftData.id === id) draftData = null;
-        }
-    } else {
-        draftData = null;
-    }
-    m.classList.remove('active');
-    document.body.classList.remove('modal-open');
-    setTimeout(() => {
-        m.style.display = 'none';
-        document.querySelectorAll('.modified-field').forEach(el => el.classList.remove('modified-field'));
-    }, 300);
-}
 
-function abrirModal(id = null, e = null) {
-    if (e) e.stopPropagation();
-    pendingIntentId = id;
-    if (draftData !== null) {
-        if (id !== null && String(draftData.id) === String(id)) {
-            prepararModal(id, true);
-            return;
-        }
-        const draftTitle = draftData.title || "(Sem Título)";
-        const draftType = draftData.id ? "Editando: " : "Novo: ";
-        document.getElementById('txtDraftName').innerText = draftType + draftTitle;
-        draftConfirmModal.style.display = 'flex';
-        setTimeout(() => draftConfirmModal.classList.add('active'), 10);
-        return;
-    }
-    prepararModal(id);
-}
-
-function descartarRascunho() {
-    draftData = null;
-    draftConfirmModal.classList.remove('active');
-    setTimeout(() => {
-        draftConfirmModal.style.display = 'none';
-        prepararModal(pendingIntentId);
-    }, 300);
-}
-
-function usarRascunho() {
-    draftConfirmModal.classList.remove('active');
-    setTimeout(() => {
-        draftConfirmModal.style.display = 'none';
-        prepararModal(draftData.id || null, true);
-    }, 300);
-}
-
-function prepararModal(id, useDraft = false) {
-    const m = document.getElementById('modalOverlay');
-    m.style.display = 'flex';
-    requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-            m.classList.add('active');
-            const body = document.querySelector('.modal-body-dashboard');
-            if (body) body.scrollTop = 0;
+            sendUpdateToSheet(payload).then(success => {
+                if (!success) {
+                    showToast("Falha ao salvar no servidor.", "error");
+                }
+            });
         });
     });
+}
 
-    const isEdit = id !== null && id !== "";
-    editingStepIndex = -1;
-    document.getElementById('newStepDesc').value = '';
-    document.getElementById('newStepDate').value = '';
-    document.getElementById('newStepTitle').value = '';
-    filesToDelete = [];
-    keptExistingAttachments = [];
-    document.getElementById('existingAttachmentsArea').innerHTML = '';
-    const ti = document.getElementById('inpTitle');
-    document.getElementById('modalAvatarList').innerHTML = "";
-
-    let source = useDraft ? draftData : (isEdit ? tasks.find(x => String(x.id) === String(id)) : null);
-
-    if (source) {
-        document.getElementById('taskId').value = source.id || (useDraft ? '' : source.id);
-        ti.value = source.title;
-        setTimeout(() => autoResize(ti), 10);
-        document.getElementById('inpUnit').value = source.unit;
-        document.getElementById('display-unit').innerText = source.unit || 'Selecionar...';
-        document.getElementById('inpPriority').value = source.priority;
-        document.getElementById('display-prio').innerText = (source.priority === 'alta' ? 'Alta' : source.priority === 'media' ? 'Média' : 'Baixa');
-        document.getElementById('inpOrigin').value = source.origin;
-        document.getElementById('inpProblem').value = source.problem || source.desc || "";
-        document.getElementById('inpWhy').value = source.why || "";
-        document.getElementById('inpHow').value = source.how || "";
-        document.getElementById('inpCost').value = source.cost || "";
-        document.getElementById('inpObs').value = source.obs || "";
-        document.getElementById('inpResp').value = source.resp;
-        setTimeout(() => autoResize(document.getElementById('inpResp')), 10);
-        if (source.resp) atualizarAvatarsModal(source.resp);
-        document.getElementById('inpDateStart').value = useDraft ? source.dateStart : dataParaInput(source.dateStart);
-        document.getElementById('inpDateDue').value = useDraft ? source.dateDue : dataParaInput(source.dateDue);
-        updateStatusUI(useDraft ? source.status : normalizarTexto(source.status));
-        tempSteps = source.steps ? [...source.steps] : [];
-
-        if (useDraft) {
-            newFiles = source.newFiles ? [...source.newFiles] : [];
-            document.getElementById('newStepTitle').value = source.newStepT || '';
-            document.getElementById('newStepDesc').value = source.newStepD || '';
-            document.getElementById('newStepDate').value = source.newStepDt || '';
-            if (source.id) {
-                const original = tasks.find(x => String(x.id) === String(source.id));
-                if (original && original.attachments) {
-                    keptExistingAttachments = original.attachments.toString().includes("|||") ? original.attachments.split('|||').filter(x => x) : original.attachments.split(',').filter(x => x);
-                    renderExistingAttachments();
+function cancelSlotBooking() {
+    showMessageModal('Liberar Vaga', 'Remover paciente?', 'confirm', () => {
+        requestToken(async () => {
+            const id = document.getElementById('selected-slot-id').value;
+            
+            Object.keys(appointments).forEach(dateKey => {
+                const slotIndex = appointments[dateKey].findIndex(s => String(s.id) === String(id));
+                if (slotIndex !== -1) {
+                    appointments[dateKey][slotIndex] = {
+                        ...appointments[dateKey][slotIndex],
+                        status: 'LIVRE',
+                        patient: '', record: '', contract: '', regulated: null,
+                        procedure: '', detail: '', eye: '', createdBy: currentUserToken
+                    };
                 }
-            }
-        } else {
-            newFiles = [];
-            if (source.attachments) {
-                keptExistingAttachments = source.attachments.toString().includes("|||") ? source.attachments.split('|||').filter(x => x) : source.attachments.split(',').filter(x => x);
-                renderExistingAttachments();
-            }
-        }
+            });
 
-        renderFilePreview();
-        if (useDraft && source.originalState) {
-            setTimeout(() => destacarCamposModificados(capturarEstadoAtual(), source.originalState), 100);
-        }
-    } else {
-        document.getElementById('taskId').value = '';
-        ti.value = '';
-        ti.style.height = '50px';
-        document.getElementById('inpUnit').value = '';
-        document.getElementById('display-unit').innerText = 'Selecionar...';
-        document.getElementById('inpPriority').value = 'baixa';
-        document.getElementById('display-prio').innerText = 'Baixa';
-        document.getElementById('inpOrigin').value = '';
-        document.getElementById('inpProblem').value = '';
-        document.getElementById('inpWhy').value = '';
-        document.getElementById('inpHow').value = '';
-        document.getElementById('inpCost').value = '';
-        document.getElementById('inpObs').value = '';
-        const hj = new Date(),
-            y = hj.getFullYear(),
-            m = String(hj.getMonth() + 1).padStart(2, '0'),
-            d = String(hj.getDate()).padStart(2, '0');
-        document.getElementById('inpDateStart').value = `${y}-${m}-${d}`;
-        document.getElementById('inpDateDue').value = '';
-        updateStatusUI('pendente');
-        document.getElementById('inpResp').value = '';
-        document.getElementById('inpResp').style.height = '46px';
-        tempSteps = [];
-        newFiles = [];
-        renderFilePreview();
+            recalculateMonthCache(selectedDateKey.substring(0, 7));
+            closeMessageModal();
+            closeModal();
+            renderSlotsList();
+            updateKPIs();
+            showToast("Vaga liberada.", "success");
+
+            const payload = {
+                action: "update",
+                id: id,
+                status: 'LIVRE',
+                patient: '', record: '', contract: '', regulated: null,
+                procedure: '', detail: '', eye: '', createdBy: currentUserToken
+            };
+            
+            sendUpdateToSheet(payload);
+        }, "Autorizar Cancelamento");
+    });
+}
+
+// --- KPI ---
+function updateKPIs() {
+    const picker = document.getElementById('dashboard-month-picker');
+    let targetMonth = selectedDateKey.substring(0, 7);
+
+    if (picker && picker.value) {
+        targetMonth = picker.value;
+    } else if (picker) {
+        picker.value = targetMonth;
     }
 
-    renderTimeline();
-    setTimeout(() => {
-        estadoInicialFormulario = (useDraft && draftData && draftData.originalState) ? draftData.originalState : capturarEstadoAtual();
-    }, 50);
-    document.body.classList.add('modal-open');
-}
-
-function fecharDeleteModal() {
-    document.getElementById('deleteModal').classList.remove('active');
-    setTimeout(() => document.getElementById('deleteModal').style.display = 'none', 300);
-}
-
-function fecharAlertModal() {
-    document.getElementById('alertModal').classList.remove('active');
-    setTimeout(() => document.getElementById('alertModal').style.display = 'none', 300);
-}
-
-function acionarCalendario(wrapper) {
-    const input = wrapper.querySelector('input');
-    if (input) {
-        if (input.showPicker) input.showPicker();
-        else {
-            input.focus();
-            input.click();
+    if (!DASH_CACHE[targetMonth]) recalculateMonthCache(targetMonth);
+    
+    const stats = DASH_CACHE[targetMonth] || {
+        total: 0, occupied: 0, 
+        counts: {
+            Regulado: { Total: 0, ESTADO: 0, SERRA: 0, SALGUEIRO: 0 },
+            Interno: { Total: 0, ESTADO: 0, SERRA: 0, SALGUEIRO: 0 },
+            Municipal: { Total: 0, RECIFE: 0, JABOATÃO: 0 }
         }
-    }
+    };
+
+    const { total, occupied, counts } = stats;
+
+    const pctOccupied = total > 0 ? (occupied / total) * 100 : 0;
+    const pctIdle = total > 0 ? ((total - occupied) / total) * 100 : 0;
+
+    animateMetric('glb-total', total);
+    animateMetric('glb-occupied', pctOccupied, true);
+    animateMetric('glb-idle', pctIdle, true);
+
+    const totalReg = counts.Regulado.Total;
+    const pctRegGlobal = total > 0 ? (totalReg / total) * 100 : 0;
+    
+    animateMetric('kpi-60-val', pctRegGlobal, true);
+    document.getElementById('prog-60').style.width = Math.min(pctRegGlobal, 100) + '%';
+
+    animateSubMetric('stat-estado', counts.Regulado.ESTADO, totalReg);
+    animateSubMetric('stat-serra', counts.Regulado.SERRA, totalReg);
+    animateSubMetric('stat-salgueiro', counts.Regulado.SALGUEIRO, totalReg);
+
+    const totalInt = counts.Interno.Total;
+    const pctIntGlobal = total > 0 ? (totalInt / total) * 100 : 0;
+
+    animateMetric('kpi-40-val', pctIntGlobal, true);
+    document.getElementById('prog-40').style.width = Math.min(pctIntGlobal, 100) + '%';
+
+    animateSubMetric('stat-int-estado', counts.Interno.ESTADO, totalInt);
+    animateSubMetric('stat-int-serra', counts.Interno.SERRA, totalInt);
+    animateSubMetric('stat-int-salgueiro', counts.Interno.SALGUEIRO, totalInt);
+
+    animateMetric('stat-recife', counts.Municipal.RECIFE);
+    animateMetric('stat-jaboatao', counts.Municipal.JABOATÃO);
+    animateMetric('kpi-mun-val', counts.Municipal.Total);
 }
 
-function renderTimeline(novoItemIndex = -1) {
-    timelineList.innerHTML = "";
-    tempSteps.forEach((s, i) => {
-        const el = document.createElement('div');
-        el.className = 'map-item';
-        if (i === novoItemIndex) el.classList.add('new-item');
-        el.innerHTML = `
-            <div class="map-connector"></div><div class="map-dot"></div>
-            <div class="map-card" onclick="toggleMapCard(this)">
-                <div class="map-card-header">
-                    <div class="map-header-left"><span class="map-title">${s.title || "Sem Título"}</span><span class="map-date">${s.date ? formatarData(s.date) : "Data N/A"}</span></div>
-                    <div class="map-header-right" onclick="event.stopPropagation()">
-                        <span class="material-icons-round map-btn-icon" onclick="prepararEdicao(${i}, event)" title="Editar">edit</span>
-                        <span class="material-icons-round map-btn-icon del" onclick="removeStep(${i}, event)" title="Excluir">delete</span>
-                        <span class="material-icons-round toggle-icon" onclick="toggleMapCard(this.closest('.map-card'))">expand_more</span>
-                    </div>
+// --- PDF ---
+function generateDashboardPDF() {
+    const monthVal = document.getElementById('dashboard-month-picker').value || 'Geral';
+    
+    let stats = DASH_CACHE[monthVal];
+    if (!stats) {
+        recalculateMonthCache(monthVal);
+        stats = DASH_CACHE[monthVal];
+    }
+    
+    const { total, occupied, counts } = stats;
+    
+    const pctOcup = total > 0 ? (occupied / total * 100).toFixed(1) : "0.0";
+    const totalReg = counts.Regulado.Total;
+    const totalInt = counts.Interno.Total;
+    const pctRegGlobal = total > 0 ? (totalReg / total * 100).toFixed(1) : "0.0";
+    const pctIntGlobal = total > 0 ? (totalInt / total * 100).toFixed(1) : "0.0";
+
+    const calcSubPct = (val, groupTot) => groupTot > 0 ? (val / groupTot * 100).toFixed(1) : "0.0";
+
+    const regEstadoPct = calcSubPct(counts.Regulado.ESTADO, totalReg);
+    const regSerraPct = calcSubPct(counts.Regulado.SERRA, totalReg);
+    const regSalgPct = calcSubPct(counts.Regulado.SALGUEIRO, totalReg);
+
+    const intEstadoPct = calcSubPct(counts.Interno.ESTADO, totalInt);
+    const intSerraPct = calcSubPct(counts.Interno.SERRA, totalInt);
+    const intSalgPct = calcSubPct(counts.Interno.SALGUEIRO, totalInt);
+
+    const content = document.createElement('div');
+    content.innerHTML = `
+        <div style="font-family: Arial, sans-serif; padding: 20px;">
+            <div style="border-bottom: 2px solid #0284c7; padding-bottom: 10px; margin-bottom: 20px;">
+                <h1 style="color: #1e293b; font-size: 24px; margin: 0;">Relatório de Governança Cirúrgica</h1>
+                <div style="color: #64748b; font-size: 14px; margin-top: 5px;">Período de Referência: ${monthVal}</div>
+            </div>
+
+            <div style="background: #f8fafc; padding: 15px; border-radius: 8px; margin-bottom: 30px;">
+                <h3 style="margin-top:0; color:#475569; font-size:16px; border-bottom:1px solid #cbd5e1; padding-bottom:5px;">Visão Global</h3>
+                <table style="width: 100%; border-collapse: collapse;">
+                    <tr>
+                        <td style="padding: 10px; border-bottom: 1px solid #e2e8f0;"><strong>Total de Vagas:</strong> ${total}</td>
+                        <td style="padding: 10px; border-bottom: 1px solid #e2e8f0;"><strong>Ocupação:</strong> ${pctOcup}%</td>
+                        <td style="padding: 10px; border-bottom: 1px solid #e2e8f0;"><strong>Ociosidade:</strong> ${(100 - parseFloat(pctOcup)).toFixed(1)}%</td>
+                    </tr>
+                </table>
+            </div>
+
+            <div style="display:flex; gap:20px;">
+                <div style="flex:1;">
+                    <h3 style="color:#7c3aed; font-size:16px; border-bottom:1px solid #ddd; padding-bottom:5px;">Contratos Regulados (Meta 60%)</h3>
+                    <div style="font-size:24px; font-weight:bold; color:#7c3aed; margin-bottom:10px;">${pctRegGlobal}% <span style="font-size:12px; color:#666">do total</span></div>
+                    <table style="width: 100%; border: 1px solid #e2e8f0; font-size:13px;">
+                        <tr style="background:#f1f5f9;"><th style="padding:8px; text-align:left;">Unidade</th><th style="padding:8px; text-align:right;">% Grupo (Qtd)</th></tr>
+                        <tr><td style="padding:8px; border-bottom:1px solid #eee;">Estado</td><td style="padding:8px; text-align:right;">${regEstadoPct}% (${counts.Regulado.ESTADO})</td></tr>
+                        <tr><td style="padding:8px; border-bottom:1px solid #eee;">Serra Talhada</td><td style="padding:8px; text-align:right;">${regSerraPct}% (${counts.Regulado.SERRA})</td></tr>
+                        <tr><td style="padding:8px;">Salgueiro</td><td style="padding:8px; text-align:right;">${regSalgPct}% (${counts.Regulado.SALGUEIRO})</td></tr>
+                        <tr style="background:#f8fafc; font-weight:bold;"><td style="padding:8px;">TOTAL</td><td style="padding:8px; text-align:right;">100% (${totalReg})</td></tr>
+                    </table>
                 </div>
-                <div class="map-card-body"><div class="map-card-content-inner"><div class="map-desc">${s.desc || '<span style="color:#ccc;font-style:italic;">Sem descrição detalhada.</span>'}</div></div></div>
-            </div>`;
-        timelineList.appendChild(el);
-    });
-    if (novoItemIndex > -1) setTimeout(() => timelineList.lastElementChild.scrollIntoView({
-        behavior: 'smooth'
-    }), 100);
-}
 
-function toggleMapCard(card) {
-    if (card.classList.contains('open')) card.classList.remove('open');
-    else card.classList.add('open');
-}
+                <div style="flex:1;">
+                    <h3 style="color:#059669; font-size:16px; border-bottom:1px solid #ddd; padding-bottom:5px;">Contratos Internos (Meta 40%)</h3>
+                    <div style="font-size:24px; font-weight:bold; color:#059669; margin-bottom:10px;">${pctIntGlobal}% <span style="font-size:12px; color:#666">do total</span></div>
+                    <table style="width: 100%; border: 1px solid #e2e8f0; font-size:13px;">
+                        <tr style="background:#f1f5f9;"><th style="padding:8px; text-align:left;">Unidade</th><th style="padding:8px; text-align:right;">% Grupo (Qtd)</th></tr>
+                        <tr><td style="padding:8px; border-bottom:1px solid #eee;">Estado</td><td style="padding:8px; text-align:right;">${intEstadoPct}% (${counts.Interno.ESTADO})</td></tr>
+                        <tr><td style="padding:8px; border-bottom:1px solid #eee;">Serra Talhada</td><td style="padding:8px; text-align:right;">${intSerraPct}% (${counts.Interno.SERRA})</td></tr>
+                        <tr><td style="padding:8px;">Salgueiro</td><td style="padding:8px; text-align:right;">${intSalgPct}% (${counts.Interno.SALGUEIRO})</td></tr>
+                        <tr style="background:#f8fafc; font-weight:bold;"><td style="padding:8px;">TOTAL</td><td style="padding:8px; text-align:right;">100% (${totalInt})</td></tr>
+                    </table>
+                </div>
+            </div>
 
-function prepararEdicao(i, e) {
-    if (e) e.stopPropagation();
-    const s = tempSteps[i];
-    document.getElementById('newStepTitle').value = s.title || "";
-    document.getElementById('newStepDesc').value = s.desc || "";
-    document.getElementById('newStepDate').value = s.date ? dataParaInput(s.date) : '';
-    editingStepIndex = i;
-    btnAddStep.innerText = "Salvar Alteração";
-    document.getElementById('newStepTitle').focus();
-    document.getElementById('newStepTitle').scrollIntoView({
-        behavior: 'smooth',
-        block: 'center'
-    });
-}
+            <div style="margin-top: 30px;">
+                 <h3 style="color:#64748b; font-size:16px; border-bottom:1px solid #ddd; padding-bottom:5px;">Municípios (Sem Meta)</h3>
+                 <table style="width: 100%; border: 1px solid #e2e8f0; font-size:13px;">
+                    <tr style="background:#f1f5f9;"><th style="padding:8px; text-align:left;">Município</th><th style="padding:8px; text-align:right;">Qtd</th></tr>
+                    <tr><td style="padding:8px; border-bottom:1px solid #eee;">Recife</td><td style="padding:8px; text-align:right;">${counts.Municipal.RECIFE}</td></tr>
+                    <tr><td style="padding:8px;">Jaboatão</td><td style="padding:8px; text-align:right;">${counts.Municipal.JABOATÃO}</td></tr>
+                 </table>
+            </div>
 
-function adicionarPasso() {
-    const t = document.getElementById('newStepTitle').value;
-    const d = document.getElementById('newStepDesc').value;
-    const dt = document.getElementById('newStepDate').value;
-    if (!t && !d) return document.getElementById('newStepTitle').focus();
-    const passoObj = {
-        title: t,
-        desc: d,
-        date: dt
+            <div style="margin-top:40px; font-size:10px; color:#94a3b8; text-align:center; border-top:1px solid #eee; padding-top:10px;">
+                Documento gerado automaticamente pelo sistema GovCirúrgica em ${new Date().toLocaleString()}
+            </div>
+        </div>
+    `;
+
+    const opt = {
+        margin:       10,
+        filename:     `Relatorio_Gov_${monthVal}.pdf`,
+        image:        { type: 'jpeg', quality: 0.98 },
+        html2canvas:  { scale: 2 },
+        jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
     };
-    let novoIndex = -1;
-    if (editingStepIndex > -1) {
-        tempSteps[editingStepIndex] = passoObj;
-        editingStepIndex = -1;
-        btnAddStep.innerText = "Adicionar ao Mapa";
-    } else {
-        tempSteps.push(passoObj);
-        novoIndex = tempSteps.length - 1;
+
+    setLoading(true);
+
+    if (typeof html2pdf === 'undefined') {
+        setLoading(false);
+        return showToast('Erro: Biblioteca PDF não carregada.', 'error');
     }
-    renderTimeline(novoIndex);
-    document.getElementById('newStepTitle').value = '';
-    document.getElementById('newStepDesc').value = '';
-    document.getElementById('newStepDate').value = '';
+
+    html2pdf().set(opt).from(content).save().then(() => {
+        setLoading(false);
+        showToast('PDF baixado com sucesso!', 'success');
+    }).catch(err => {
+        setLoading(false);
+        console.error(err);
+        showToast('Erro ao gerar PDF.', 'error');
+    });
 }
 
-function removeStep(i, e) {
-    if (e) e.stopPropagation();
-    const el = timelineList.children[i];
-    if (el) {
-        el.classList.add('removing');
-        setTimeout(() => {
-            tempSteps.splice(i, 1);
-            renderTimeline();
-        }, 450);
-    } else {
-        tempSteps.splice(i, 1);
-        renderTimeline();
-    }
-}
+// --- MODAIS GERAIS ---
 
-function setStatus(e) {
-    updateStatusUI(e.getAttribute('data-val'));
-}
+let messageCallback = null;
 
-function updateStatusUI(v) {
-    document.getElementById('selectedStatus').value = v;
-    document.querySelectorAll('.seg-btn').forEach(b => b.classList.remove('active'));
-    document.querySelector(`.seg-btn[data-val="${v}"]`).classList.add('active');
-}
+function showMessageModal(title, message, type = 'success', onConfirm = null) {
+    const modal = document.getElementById('message-modal');
+    const iconEl = document.getElementById('msg-icon');
+    const btns = document.getElementById('msg-actions');
 
-modal.onclick = (e) => {
-    if (e.target === modal) fecharModal()
-};
-deleteModal.onclick = (e) => {
-    if (e.target === deleteModal) fecharDeleteModal()
-};
-attachmentDeleteModal.onclick = (e) => {
-    if (e.target === attachmentDeleteModal) fecharModalAnexo()
-};
-alertModal.onclick = (e) => {
-    if (e.target === alertModal) fecharAlertModal()
-};
-modalNomes.onclick = (e) => {
-    if (e.target === modalNomes) fecharModalNomes()
-};
-draftConfirmModal.onclick = (e) => {
-    if (e.target === draftConfirmModal) descartarRascunho()
-};
-pinModal.onclick = (e) => {
-    if (e.target === pinModal) fecharPinModal()
-};
+    document.getElementById('msg-title').innerText = title;
+    document.getElementById('msg-body').innerHTML = message;
+    messageCallback = onConfirm;
 
-function toggleStats(e) {
-    isStatsOpen = !isStatsOpen;
-    const btn = document.getElementById('btnStats');
-    if (isStatsOpen) {
-        statsPanel.classList.add('open');
-        btn.classList.add('active');
-        window.scrollTo({
-            top: 0,
-            behavior: 'smooth'
-        });
-        if (tasks.length > 0) setTimeout(() => atualizarGraficos(), 300);
-    } else {
-        statsPanel.classList.remove('open');
-        btn.classList.remove('active');
-    }
-}
+    btns.style.display = 'flex';
+    if (type === 'loading') btns.style.display = 'none';
 
-function atualizarGraficos() {
-    if (!isStatsOpen) return;
-    if (chartStatusInstance) chartStatusInstance.destroy();
-    if (chartPrazosInstance) chartPrazosInstance.destroy();
-    if (chartUnitInstance) chartUnitInstance.destroy();
-    if (chartRespInstance) chartRespInstance.destroy();
-
-    const statsStatus = {
-        pendente: 0,
-        andamento: 0,
-        concluido: 0
+    const icons = {
+        'success': { color: '#16a34a', bg: '#dcfce7', svg: `<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>` },
+        'warning': { color: '#d97706', bg: '#fef3c7', svg: `<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>` },
+        'error': { color: '#dc2626', bg: '#fee2e2', svg: `<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>` },
+        'confirm': { color: '#0284c7', bg: '#e0f2fe', svg: `<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>` },
+        'loading': { color: '#0284c7', bg: '#f0f9ff', svg: `<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="animation:spin 1s linear infinite"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg>` }
     };
-    tasks.forEach(t => {
-        let s = normalizarTexto(t.status);
-        if (statsStatus[s] !== undefined) statsStatus[s]++;
-        else statsStatus.pendente++;
-    });
 
-    const hj = new Date().toISOString().split('T')[0];
-    let atrasados = 0,
-        noPrazo = 0,
-        semPrazo = 0;
-    tasks.forEach(t => {
-        if (normalizarTexto(t.status) === 'concluido') return;
-        const d = dataParaInput(t.dateDue);
-        if (!d) semPrazo++;
-        else if (d < hj) atrasados++;
-        else noPrazo++;
-    });
+    const style = icons[type] || icons['success'];
+    iconEl.style.color = style.color;
+    iconEl.style.background = style.bg;
+    iconEl.innerHTML = style.svg;
 
-    const unitMap = {},
-        respMap = {};
-    tasks.forEach(t => {
-        const u = t.unit || 'Sem Unidade';
-        unitMap[u] = (unitMap[u] || 0) + 1;
-        if (t.resp) t.resp.split(',').forEach(r => {
-            const name = formatarNomeProprio(r.trim());
-            if (name) respMap[name] = (respMap[name] || 0) + 1;
-        });
-    });
-    const sortedResp = Object.entries(respMap).sort((a, b) => b[1] - a[1]).slice(0, 5);
+    const btnConfirm = document.getElementById('msg-btn-confirm');
+    const btnCancel = document.getElementById('msg-btn-cancel');
 
-    const ctxStatus = document.getElementById('chartStatus').getContext('2d');
-    chartStatusInstance = new Chart(ctxStatus, {
-        type: 'doughnut',
-        data: {
-            labels: ['A Fazer', 'Andamento', 'Concluído'],
-            datasets: [{
-                data: [statsStatus.pendente, statsStatus.andamento, statsStatus.concluido],
-                backgroundColor: ['#cbd5e1', '#f59e0b', '#059669'],
-                borderWidth: 0
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            cutout: '75%',
-            plugins: {
-                legend: {
-                    position: 'right',
-                    labels: {
-                        boxWidth: 10
-                    }
-                }
-            }
-        }
-    });
-    const ctxPrazos = document.getElementById('chartPrazos').getContext('2d');
-    chartPrazosInstance = new Chart(ctxPrazos, {
-        type: 'doughnut',
-        data: {
-            labels: ['Em Dia', 'Atrasado', 'S/ Prazo'],
-            datasets: [{
-                data: [noPrazo, atrasados, semPrazo],
-                backgroundColor: ['#10b981', '#ef4444', '#e2e8f0'],
-                borderWidth: 0
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            cutout: '75%',
-            plugins: {
-                legend: {
-                    position: 'right',
-                    labels: {
-                        boxWidth: 10
-                    }
-                }
-            }
-        }
-    });
-    const ctxUnit = document.getElementById('chartUnit').getContext('2d');
-    chartUnitInstance = new Chart(ctxUnit, {
-        type: 'doughnut',
-        data: {
-            labels: Object.keys(unitMap),
-            datasets: [{
-                label: 'Ocorrências',
-                data: Object.values(unitMap),
-                backgroundColor: ['#0f4c81', '#00d2d3', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6'],
-                borderWidth: 0
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            cutout: '75%',
-            plugins: {
-                legend: {
-                    position: 'right',
-                    labels: {
-                        boxWidth: 10
-                    }
-                }
-            }
-        }
-    });
-    const containerResp = document.getElementById('respChartContainer');
-    containerResp.style.height = (sortedResp.length * 40 + 50) + 'px';
-    const ctxResp = document.getElementById('chartResp').getContext('2d');
-    chartRespInstance = new Chart(ctxResp, {
-        type: 'bar',
-        indexAxis: 'y',
-        data: {
-            labels: sortedResp.map(i => i[0]),
-            datasets: [{
-                label: 'Tarefas Ativas',
-                data: sortedResp.map(i => i[1]),
-                backgroundColor: '#00d2d3',
-                borderRadius: 4,
-                barPercentage: 0.3
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            scales: {
-                x: {
-                    beginAtZero: true,
-                    padding: {
-                        left: 35
-                    }
-                }
-            }
-        }
-    });
+    if (type === 'confirm') {
+        btnCancel.style.display = 'block';
+        btnConfirm.innerText = 'Confirmar';
+        btnConfirm.onclick = () => { if (messageCallback) messageCallback(); };
+    } else {
+        btnCancel.style.display = 'none';
+        btnConfirm.innerText = 'OK';
+        btnConfirm.onclick = () => closeMessageModal();
+    }
+
+    modal.classList.add('open');
 }
+
+function closeMessageModal() {
+    document.getElementById('message-modal').classList.remove('open');
+    messageCallback = null;
+}
+
+function exportDailyReport() {
+    const key = selectedDateKey;
+    const slots = appointments[key] || [];
+
+    if (slots.length === 0) return showToast('Nada para exportar.', 'warning');
+
+    const headers = ["Data", "Hora", "Unidade", "Sala", "Status", "Paciente", "Prontuario", "Contrato", "Regulado", "Medico", "Procedimento", "Detalhe"];
+    const rows = slots.map(s => {
+        return [
+            key, s.time, s.location, s.room, s.status, s.patient, s.record, s.contract, 
+            (s.regulated ? 'SIM' : 'NÃO'), s.doctor, s.procedure, s.detail
+        ].map(val => `"${String(val || '').replace(/"/g, '""')}"`).join(';');
+    });
+
+    const csvContent = "\uFEFF" + [headers.join(';'), ...rows].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `Relatorio_${key}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+}
+
+window.onclick = function (event) {
+    if (event.target === document.getElementById('login-modal')) closeLoginModal();
+    if (event.target === document.getElementById('booking-modal')) closeModal();
+    if (event.target === document.getElementById('message-modal')) closeMessageModal();
+}
+
+// Inicia
+initData();
