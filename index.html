@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Visão 5W2H | Gestão Segura</title>
+
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Montserrat:wght@600;700;800;900&display=swap" rel="stylesheet">
+    
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+    <div id="toast-container"></div>
+    
+    <div class="click-overlay" id="clickOverlay" onclick="closeAllDropdowns()"></div>
+
+    <div id="loading-overlay">
+        <div class="loader-brand-icon">5W2H</div>
+        <div class="loader-text">Carregando Visão...</div>
+    </div>
+
+    <header>
+        <div class="logo-area" onclick="resetarPagina()">
+            <svg class="logo-svg-clean" width="38" height="26" viewBox="0 0 50 35" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                    <linearGradient id="brandGrad" x1="0" y1="0" x2="50" y2="0" gradientUnits="userSpaceOnUse">
+                        <stop stop-color="#0f4c81"/>
+                        <stop offset="1" stop-color="#00d2d3"/>
+                    </linearGradient>
+                </defs>
+                <path d="M18 6 L 25 12 L 32 6" stroke="url(#brandGrad)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M8 19 L 15 25 L 22 19" stroke="url(#brandGrad)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M28 19 L 35 25 L 42 19" stroke="url(#brandGrad)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <h1><span class="brand-text">VISÃO 5W2H</span></h1>
+        </div>
+        <div class="header-actions">
+            <div class="search-wrapper">
+                <input type="text" class="search-input" placeholder="Pesquisar..." onkeyup="filtrarCards(this.value)">
+                <div class="search-icon-bg"><span class="material-icons-round">search</span></div>
+            </div>
+            <button class="btn-toggle-stats" onclick="toggleStats(event)" id="btnStats">
+                <span class="material-icons-round">bar_chart</span><span style="font-size:0.9rem">Estatísticas</span>
+            </button>
+            <button class="btn-main-add" onclick="abrirModal(null, event)">
+                <span class="material-icons-round">add_circle</span>
+            </button>
+        </div>
+    </header>
+
+    <div class="stats-panel" id="statsPanel">
+        <div class="dashboard-grid">
+            <div class="chart-box">
+                <div class="chart-title">Workflow (Geral)</div>
+                <div class="chart-container-fixed"><canvas id="chartStatus"></canvas></div>
+            </div>
+            <div class="chart-box">
+                <div class="chart-title">Performance de Prazos</div>
+                <div class="chart-container-fixed"><canvas id="chartPrazos"></canvas></div>
+            </div>
+            <div class="chart-box span-2">
+                <div class="chart-title">Ocorrências por Unidade</div>
+                <div class="chart-container-fixed"><canvas id="chartUnit"></canvas></div>
+            </div>
+            <div class="chart-box span-4">
+                <div class="chart-title">Ranking de Responsáveis (Top 5)</div>
+                <div class="chart-scroll-wrapper">
+                    <div class="chart-dynamic-height" id="respChartContainer"><canvas id="chartResp"></canvas></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="filter-container">
+        <div class="custom-dropdown" id="dd-status">
+            <input type="hidden" id="filtro-status" value="todos">
+            <div class="dropdown-btn" onclick="toggleDropdown('dd-status')">
+                <div class="btn-content">
+                    <span class="material-icons-round btn-icon">view_kanban</span>
+                    <span class="label-text" id="lbl-status">Status: Todos</span>
+                </div>
+                <span class="material-icons-round arrow-icon">expand_more</span>
+            </div>
+            <div class="dropdown-options">
+                <div class="dropdown-item selected" onclick="selectFilter('status', 'todos', 'Status: Todos', this)">Status: Todos</div>
+                <div class="dropdown-item" onclick="selectFilter('status', 'pendente', 'A Fazer', this)">A Fazer</div>
+                <div class="dropdown-item" onclick="selectFilter('status', 'andamento', 'Em Andamento', this)">Em Andamento</div>
+                <div class="dropdown-item" onclick="selectFilter('status', 'concluido', 'Concluídos', this)">Concluídos</div>
+            </div>
+        </div>
+
+        <div class="custom-dropdown" id="dd-prioridade">
+            <input type="hidden" id="filtro-prioridade" value="todos">
+            <div class="dropdown-btn" onclick="toggleDropdown('dd-prioridade')">
+                <div class="btn-content">
+                    <span class="material-icons-round btn-icon">flag</span>
+                    <span class="label-text" id="lbl-prioridade">Prioridade: Todas</span>
+                </div>
+                <span class="material-icons-round arrow-icon">expand_more</span>
+            </div>
+            <div class="dropdown-options">
+                <div class="dropdown-item selected" onclick="selectFilter('prioridade', 'todos', 'Prioridade: Todas', this)">Prioridade: Todas</div>
+                <div class="dropdown-item" onclick="selectFilter('prioridade', 'alta', 'Alta', this)">Alta</div>
+                <div class="dropdown-item" onclick="selectFilter('prioridade', 'media', 'Média', this)">Média</div>
+                <div class="dropdown-item" onclick="selectFilter('prioridade', 'baixa', 'Baixa', this)">Baixa</div>
+            </div>
+        </div>
+
+        <div class="custom-dropdown" id="dd-unidade">
+            <input type="hidden" id="filtro-unidade" value="todos">
+            <div class="dropdown-btn" onclick="toggleDropdown('dd-unidade')">
+                <div class="btn-content">
+                    <span class="material-icons-round btn-icon">location_on</span>
+                    <span class="label-text" id="lbl-unidade">Unidade: Todas</span>
+                </div>
+                <span class="material-icons-round arrow-icon">expand_more</span>
+            </div>
+            <div class="dropdown-options" id="list-unidade"></div>
+        </div>
+
+        <div class="custom-dropdown" id="dd-origem">
+            <input type="hidden" id="filtro-origem" value="todos">
+            <div class="dropdown-btn" onclick="toggleDropdown('dd-origem')">
+                <div class="btn-content">
+                    <span class="material-icons-round btn-icon">source</span>
+                    <span class="label-text" id="lbl-origem">Origem: Todas</span>
+                </div>
+                <span class="material-icons-round arrow-icon">expand_more</span>
+            </div>
+            <div class="dropdown-options" id="list-origem"></div>
+        </div>
+
+        <button id="btn-limpar" class="btn-clear-filters" onclick="limparFiltros()">Limpar Filtros &times;</button>
+    </div>
+
+    <div class="pinned-container" id="pinnedSection">
+        <div class="pinned-title">
+            <span class="material-icons-round" style="color:var(--brand-cyan)">push_pin</span> 
+            Em Observação (24h)
+        </div>
+        <div class="pinned-grid" id="pinnedGrid"></div>
+    </div>
+
+    <div class="grid" id="grid"></div>
+
+    <div class="modal-overlay" id="modalOverlay">
+        <div class="modal-wide">
+            <div class="modal-top">
+                <textarea id="inpTitle" class="title-textarea" placeholder="NOME DO PLANO (TÍTULO)" rows="1" oninput="autoResize(this)"></textarea>
+                <input type="hidden" id="taskId">
+                <button class="close-btn" onclick="fecharModal()"><span class="material-icons-round">close</span></button>
+            </div>
+
+            <div class="modal-body-dashboard">
+
+                <div class="context-row">
+                    <div class="field-group">
+                        <label class="field-label"><span class="material-icons-round" style="font-size:14px">source</span> Origem <span style="color:var(--danger)">*</span></label>
+                        <input type="text" id="inpOrigin" class="std-input-base" placeholder="Ex: E-mail">
+                    </div>
+                    <div class="field-group">
+                        <label class="field-label"><span class="material-icons-round" style="font-size:14px">location_on</span> Unidade</label>
+                        <div class="custom-dropdown-modal" id="dd-modal-unit" onclick="toggleModalDropdown('dd-modal-unit', event)">
+                            <div class="modal-dropdown-btn">
+                                <span id="display-unit">Selecionar...</span>
+                                <span class="material-icons-round" style="font-size:20px; color:var(--text-light)">expand_more</span>
+                            </div>
+                            <div class="modal-dropdown-options">
+                                <div class="dropdown-item" data-value="N/A" onclick="selectModalOption('unit', 'N/A', 'N/A', event)">N/A</div>
+                                <div class="dropdown-item" data-value="Todas" onclick="selectModalOption('unit', 'Todas', 'Todas', event)">Todas</div>
+                                <div class="dropdown-item" data-value="CER IV" onclick="selectModalOption('unit', 'CER IV', 'CER IV', event)">CER IV</div>
+                                <div class="dropdown-item" data-value="Iputinga" onclick="selectModalOption('unit', 'Iputinga', 'Iputinga', event)">Iputinga</div>
+                                <div class="dropdown-item" data-value="Boa Vista" onclick="selectModalOption('unit', 'Boa Vista', 'Boa Vista', event)">Boa Vista</div>
+                                <div class="dropdown-item" data-value="Jaboatão" onclick="selectModalOption('unit', 'Jaboatão', 'Jaboatão', event)">Jaboatão</div>
+                                <div class="dropdown-item" data-value="Salgueiro" onclick="selectModalOption('unit', 'Salgueiro', 'Salgueiro', event)">Salgueiro</div>
+                                <div class="dropdown-item" data-value="Serra Talhada" onclick="selectModalOption('unit', 'Serra Talhada', 'Serra Talhada', event)">Serra Talhada</div>
+                                <div class="dropdown-item" data-value="CFAV" onclick="selectModalOption('unit', 'CFAV', 'CFAV', event)">CFAV</div>
+                            </div>
+                            <input type="hidden" id="inpUnit" value="">
+                        </div>
+                    </div>
+                    <div class="field-group">
+                        <label class="field-label"><span class="material-icons-round" style="font-size:14px">flag</span> Priorização</label>
+                        <div class="custom-dropdown-modal" id="dd-modal-prio" onclick="toggleModalDropdown('dd-modal-prio', event)">
+                            <div class="modal-dropdown-btn">
+                                <span id="display-prio">Baixa</span>
+                                <span class="material-icons-round" style="font-size:20px; color:var(--text-light)">expand_more</span>
+                            </div>
+                            <div class="modal-dropdown-options">
+                                <div class="dropdown-item" data-value="baixa" onclick="selectModalOption('priority', 'baixa', 'Baixa', event)">Baixa</div>
+                                <div class="dropdown-item" data-value="media" onclick="selectModalOption('priority', 'media', 'Média', event)">Média</div>
+                                <div class="dropdown-item" data-value="alta" onclick="selectModalOption('priority', 'alta', 'Alta', event)">Alta</div>
+                            </div>
+                            <input type="hidden" id="inpPriority" value="baixa">
+                        </div>
+                    </div>
+                    <div class="field-group">
+                        <label class="field-label"><span class="material-icons-round" style="font-size:14px">attach_money</span> Custo</label>
+                        <input type="text" id="inpCost" class="std-input-base" placeholder="R$ 0,00" oninput="formatarMoeda(this)">
+                    </div>
+                </div>
+
+                <div class="plan-column">
+                    <div class="clean-section resp-area-clean">
+                        <div class="section-header-resp">
+                            <span style="font-family:'Montserrat',sans-serif; font-size:0.85rem; font-weight:800; color:var(--primary); text-transform:uppercase; display:flex; align-items:center; gap:6px;">
+                                <span class="material-icons-round" style="font-size:18px">group</span> Quem? (Responsáveis)
+                            </span>
+                            
+                            <button type="button" class="header-action-icon" onclick="abrirModalNomes(event)" title="Consultar Banco de Nomes">
+                                <span class="material-icons-round" style="font-size:20px">person_search</span>
+                            </button>
+                        </div>
+                        
+                        <div id="modalAvatarList"></div>
+                        <textarea id="inpResp" class="input-add-resp" rows="1" placeholder="Digite os nomes (separe por vírgula)..." oninput="autoResize(this); gerenciarInputResponsavel(this)"></textarea>
+                    </div>
+
+                    <div class="clean-section">
+                        <div class="section-header">Descrição</div>
+                        <textarea id="inpProblem" class="std-input-base std-textarea textarea-tall" placeholder="Descreva os detalhes técnicos da demanda..."></textarea>
+                    </div>
+
+                    <div class="clean-section">
+                        <div class="section-header">Por Quê? (Justificativa)</div>
+                        <textarea id="inpWhy" class="std-input-base std-textarea textarea-xl" placeholder="Motivo da ação..."></textarea>
+                    </div>
+
+                    <div class="clean-section">
+                        <div class="section-header">Como? (Método)</div>
+                        <textarea id="inpHow" class="std-input-base std-textarea textarea-xl" placeholder="Plano de ação..."></textarea>
+                    </div>
+                </div>
+
+                <div class="exec-column">
+                    <div class="clean-section">
+                        <div class="section-header"><span style="display:flex;align-items:center;gap:6px;"><span class="material-icons-round" style="font-size:18px">event</span> Quando? (Prazos)</span>
+                        </div>
+                        <div class="dates-row-clean">
+                            <div class="modern-date-wrapper" onclick="acionarCalendario(this)">
+                                <label class="modern-date-label">Data Início</label>
+                                <input type="date" id="inpDateStart" class="modern-date-input">
+                            </div>
+                            <div class="modern-date-wrapper" onclick="acionarCalendario(this)">
+                                <label class="modern-date-label">Prazo Limite</label>
+                                <input type="date" id="inpDateDue" class="modern-date-input">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="clean-section">
+                        <div class="section-header"><span style="display:flex;align-items:center;gap:6px;"><span class="material-icons-round" style="font-size:18px">attach_file</span> Anexos</span>
+                        </div>
+                        <div class="file-upload-area">
+                            <span class="material-icons-round" style="font-size:24px; color:var(--text-light);">cloud_upload</span>
+                            <div style="font-size:0.8rem; color:var(--text-light);">Adicionar Arquivos</div>
+                            <input type="file" id="inpFiles" class="file-input-hidden" multiple accept="image/*,.pdf">
+                            <div id="filePreviewList" style="margin-top:5px; display:flex; flex-wrap:wrap; justify-content:center;"></div>
+                        </div>
+                        <div id="existingAttachmentsArea"></div>
+                    </div>
+
+                    <div class="clean-section">
+                        <div class="section-header"><span style="display:flex;align-items:center;gap:6px;"><span class="material-icons-round" style="font-size:18px">map</span> Observações e Mapa de Execução</span>
+                        </div>
+
+                        <textarea id="inpObs" class="std-input-base std-textarea" placeholder="Observações Gerais do Projeto..." style="min-height:60px; margin-bottom:15px;"></textarea>
+
+                        <div style="background:#f8fafc; padding:15px; border-radius:12px; border:1px solid #e2e8f0; margin-bottom:15px;">
+                            <div style="display:flex; gap:10px; margin-bottom:10px;">
+                                <input type="text" id="newStepTitle" class="std-input-base" placeholder="Título da Ação (Ex: Reunião)" style="font-weight:700; flex:1;">
+                                <div class="modern-date-wrapper" style="flex: 0 0 140px; padding: 5px 10px;" onclick="acionarCalendario(this)">
+                                    <label class="modern-date-label">Data</label>
+                                    <input type="date" id="newStepDate" class="modern-date-input" style="font-size:0.85rem">
+                                </div>
+                            </div>
+                            <textarea id="newStepDesc" class="std-input-base" placeholder="Descrição detalhada do que foi feito..." style="min-height:60px; resize:vertical;"></textarea>
+                            <button id="btnAddStepBtn" onclick="adicionarPasso()" class="btn-add-history" style="margin-top:10px; padding:8px; font-size:0.8rem;">Adicionar ao Mapa</button>
+                        </div>
+
+                        <div class="map-timeline" id="timelineList"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="modal-footer">
+                <button onclick="checkPinAndExecute('delete')" style="background:none; border:none; color:var(--danger); font-weight:700; cursor:pointer; display:flex; gap:5px; align-items:center; font-size:0.9rem;">
+                    <span class="material-icons-round">delete</span> Excluir
+                </button>
+                
+                <div class="status-segmented">
+                    <div class="seg-btn" data-val="pendente" onclick="setStatus(this)">
+                        <span class="material-icons-round" style="font-size:16px">radio_button_unchecked</span> A Fazer
+                    </div>
+                    <div class="seg-btn" data-val="andamento" onclick="setStatus(this)">
+                        <span class="material-icons-round" style="font-size:16px">sync</span> Andamento
+                    </div>
+                    <div class="seg-btn" data-val="concluido" onclick="setStatus(this)">
+                        <span class="material-icons-round" style="font-size:16px">check_circle</span> Concluído
+                    </div>
+                </div>
+                <input type="hidden" id="selectedStatus" value="pendente">
+                
+                <button class="btn-save" id="btnSalvarPrincipal" onclick="checkPinAndExecute('save')">Salvar Tudo</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="modalNomes" style="z-index: 200;">
+        <div class="modal-wide" style="max-width: 500px; height: auto; max-height: 80vh;">
+            <div class="modal-top">
+                <h3 style="margin:0; font-family:'Montserrat',sans-serif; color:var(--primary);">Banco de Nomes</h3>
+                <button class="close-btn" onclick="fecharModalNomes()"><span class="material-icons-round">close</span></button>
+            </div>
+            <div class="modal-body" style="display:block; padding:0;">
+                <div id="namesListContainer" style="padding: 0; overflow-y: auto; max-height: 60vh;"></div>
+            </div>
+            <div style="padding:15px; text-align:center; font-size:0.8rem; color:var(--text-light); border-top:1px solid var(--border-light);">
+                Clique em um nome para copiar.
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="pinModal" style="z-index: 2000;">
+        <div class="confirm-box" style="width: 320px;">
+            <div class="alert-icon" style="background: #e0f2fe; color: var(--primary);">
+                <span class="material-icons-round" style="font-size:30px">lock</span>
+            </div>
+            <div class="confirm-title">Acesso Restrito</div>
+            <div class="confirm-desc">Digite o PIN para confirmar a ação.</div>
+            
+            <div style="margin-bottom: 20px;">
+                <input type="password" id="pinInput" class="std-input-base" placeholder="••••" maxlength="6" style="text-align: center; font-size: 1.5rem; letter-spacing: 5px; font-weight: 700;">
+                <div id="pinError" style="color: var(--danger); font-size: 0.8rem; margin-top: 5px; opacity: 0; transition: opacity 0.3s;">PIN Incorreto</div>
+            </div>
+
+            <div class="confirm-actions">
+                <button class="btn-cancel" onclick="fecharPinModal()">Cancelar</button>
+                <button class="btn-ok" onclick="validarPin()">Confirmar</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="deleteModal" style="z-index:110">
+        <div class="confirm-box">
+            <div class="confirm-icon"><span class="material-icons-round" style="font-size:30px">delete_forever</span></div>
+            <div class="confirm-title">Excluir Ocorrência?</div>
+            <div class="confirm-desc">Atenção: Isso apagará o registro e moverá os anexos para a lixeira do Drive.</div>
+            <div class="confirm-actions">
+                <button class="btn-cancel" onclick="fecharDeleteModal()">Cancelar</button>
+                <button class="btn-delete" id="btnConfirmarExclusao" onclick="confirmarExclusao()">Sim, Excluir</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="attachmentDeleteModal" style="z-index:115">
+        <div class="confirm-box">
+            <div class="alert-icon"><span class="material-icons-round" style="font-size:30px">priority_high</span></div>
+            <div class="confirm-title">Remover Anexo?</div>
+            <div class="confirm-desc">O arquivo será movido para a lixeira do Google Drive ao salvar.</div>
+            <div class="confirm-actions">
+                <button class="btn-cancel" onclick="fecharModalAnexo()">Cancelar</button>
+                <button class="btn-delete" onclick="confirmarExclusaoAnexo()">Remover</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="alertModal" style="z-index:120">
+        <div class="confirm-box">
+            <div class="alert-icon"><span class="material-icons-round" style="font-size:30px">priority_high</span></div>
+            <div class="confirm-title">Atenção</div>
+            <div class="confirm-desc" id="alertMsg">Preencha o título.</div>
+            <div class="confirm-actions"><button class="btn-ok" onclick="fecharAlertModal()">Entendi</button></div>
+        </div>
+    </div>
+    
+    <div class="modal-overlay" id="draftConfirmModal" style="z-index:125">
+        <div class="confirm-box">
+            <div class="alert-icon" style="color:var(--primary); background:var(--primary-soft);"><span class="material-icons-round" style="font-size:30px">save_as</span></div>
+            <div class="confirm-title">Alterações não Salvas</div>
+            <div class="confirm-desc">
+                Há alterações não salvas. Deseja continuar editando ou descartar as alterações atuais?
+                <div id="txtDraftName" style="margin-top:10px; padding:5px; background:#f1f5f9; border-radius:6px; font-weight:700; font-size:0.85rem; color:var(--primary); word-break: break-word;"></div>
+            </div>
+            <div class="confirm-actions">
+                <button class="btn-cancel" onclick="descartarRascunho()">Descartar Alterações</button>
+                <button class="btn-ok" onclick="usarRascunho()">Continuar Editando</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+
+</body>
+</html>
