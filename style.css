@@ -86,7 +86,7 @@ body {
     transition: all 0.3s ease;
 }
 
-/* --- NOVO: ESTADO TRANCADO (LOCKED) --- */
+/* ESTADO TRANCADO (LOCKED) */
 .listing-column.locked {
     pointer-events: none;   /* Impede cliques */
     opacity: 0.4;           /* Deixa transparente */
@@ -492,6 +492,12 @@ body {
     box-shadow: 0 0 0 4px rgba(2, 132, 199, 0.1);
 }
 
+/* Novo: Input menor para procedimentos */
+.proc-name-input {
+    padding: 8px 12px;
+    font-size: 0.9rem;
+}
+
 .filter-select {
     appearance: none;
     background-color: #f1f5f9;
@@ -510,6 +516,17 @@ body {
 
 .filter-select:hover { background-color: #e2e8f0; color: var(--text-main); }
 .filter-select:focus { outline: none; box-shadow: 0 0 0 2px var(--primary-light); }
+
+/* --- PROCEDURE ROW (NOVO) --- */
+.procedure-row {
+    transition: all 0.2s;
+}
+
+.procedure-row:hover .btn-danger {
+    background: #fee2e2;
+    border-color: #fda4af;
+    color: #be123c;
+}
 
 /* --- BUTTONS --- */
 .btn {

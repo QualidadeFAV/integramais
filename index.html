@@ -82,7 +82,7 @@
             </div>
 
             <div class="date-list" id="slots-list-container">
-            </div>
+                </div>
         </aside>
 
         <main class="panel-column">
@@ -144,7 +144,7 @@
                                 </svg>
                             </div>
                             <div class="gs-info">
-                                <div class="gs-label">Ocupação Global</div>
+                                <div class="gs-label">Ocupação Física</div>
                                 <div class="gs-value" id="glb-occupied">0%</div>
                             </div>
                         </div>
@@ -158,7 +158,7 @@
                                 </svg>
                             </div>
                             <div class="gs-info">
-                                <div class="gs-label">Ociosidade Real</div>
+                                <div class="gs-label">Vagas Livres</div>
                                 <div class="gs-value" id="glb-idle">--</div>
                             </div>
                         </div>
@@ -169,7 +169,7 @@
                             <div class="kpi-header">
                                 <div>
                                     <div class="kpi-label" style="color:#7c3aed">Governança • Meta 60%</div>
-                                    <div class="kpi-desc">Contratos Regulados</div>
+                                    <div class="kpi-desc">Procedimentos Regulados</div>
                                 </div>
                                 <div class="kpi-value-big" id="kpi-60-val">0.0%</div>
                             </div>
@@ -196,7 +196,7 @@
                             <div class="kpi-header">
                                 <div>
                                     <div class="kpi-label" style="color:#64748b">Municípios</div>
-                                    <div class="kpi-desc">Gestão Local (Sem Meta)</div>
+                                    <div class="kpi-desc">Procedimentos Realizados</div>
                                 </div>
                                 <div class="kpi-value-big" id="kpi-mun-val" style="font-size: 2rem;">--</div>
                             </div>
@@ -217,7 +217,7 @@
                             <div class="kpi-header">
                                 <div>
                                     <div class="kpi-label" style="color:#059669">Governança • Meta 40%</div>
-                                    <div class="kpi-desc">Contratos Internos</div>
+                                    <div class="kpi-desc">Procedimentos Internos</div>
                                 </div>
                                 <div class="kpi-value-big" id="kpi-40-val">0.0%</div>
                             </div>
@@ -405,19 +405,19 @@
                 </div>
 
                 <div style="background:#f8fafc; padding:16px; border-radius:8px; border:1px solid #e2e8f0">
-                    <div
-                        style="font-size:0.75rem; font-weight:700; color:#64748b; text-transform:uppercase; margin-bottom:12px; display:flex; align-items:center; gap:6px">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                            stroke-width="2">
-                            <activity points="22 12 18 12 15 21 9 3 6 12 2 12"></activity>
+                    <div style="font-size:0.75rem; font-weight:700; color:#64748b; text-transform:uppercase; margin-bottom:12px; display:flex; align-items:center; gap:6px">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
                         </svg>
-                        Dados Cirúrgicos
+                        Dados Cirúrgicos & Procedimentos
                     </div>
+
                     <div style="display:grid; grid-template-columns: 1fr 80px 1fr; gap:12px; margin-bottom:16px">
                         <div class="form-group" style="margin:0">
-                            <label class="form-label">Procedimento</label>
-                            <input type="text" class="form-input" id="bk-procedure" readonly
-                                style="background:#f1f5f9; color:#64748b; font-weight:600">
+                            <label class="form-label">Especialidade (Vaga)</label>
+                            <input type="text" class="form-input" id="bk-specialty" readonly
+                                style="background:#f1f5f9; color:#64748b; font-weight:600; cursor:not-allowed"
+                                title="Definido na criação da vaga">
                         </div>
                         <div class="form-group" style="margin:0">
                             <label class="form-label">Olho</label>
@@ -429,15 +429,28 @@
                             </select>
                         </div>
                         <div class="form-group" style="margin:0">
-                            <label class="form-label">Detalhamento</label>
-                            <input type="text" class="form-input" id="bk-detail" placeholder="Ex: Faco, YAG...">
+                            <label class="form-label">Detalhamento Geral</label>
+                            <input type="text" class="form-input" id="bk-detail" placeholder="Ex: Diabetes, H.A.S...">
                         </div>
                     </div>
 
+                    <div class="form-group" style="margin-bottom: 8px;">
+                        <label class="form-label" style="display:flex; justify-content:space-between; align-items:center;">
+                            Procedimentos Realizados
+                            <button type="button" class="btn btn-ghost" onclick="addProcedureRow()" style="padding: 2px 8px; font-size: 0.75rem; border:1px solid #cbd5e1;">
+                                + Adicionar Item
+                            </button>
+                        </label>
+                        <div id="procedures-container" style="display:flex; flex-direction:column; gap:8px;">
+                            </div>
+                        <div style="font-size:0.7rem; color:#64748b; margin-top:4px; text-align:right">
+                            *O cálculo de metas será feito sobre a quantidade de procedimentos listados.
+                        </div>
+                    </div>
 
-                    <div class="form-group" style="margin-bottom: 16px;">
+                    <div class="form-group" style="margin-bottom: 16px; margin-top: 16px; border-top: 1px dashed #cbd5e1; padding-top: 12px;">
                         <label class="form-label">Contrato</label>
-                        <select class="form-select" id="bk-contract" onchange="checkWarning()">
+                        <select class="form-select" id="bk-contract" onchange="handleContractChange()">
                             <option value="">Selecione...</option>
                             <option value="ESTADO">ESTADO</option>
                             <option value="SERRA">SERRA</option>
@@ -447,33 +460,18 @@
                             <option value="JABOATÃO">JABOATÃO (Município)</option>
                         </select>
                     </div>
-
-                    <div style="margin-bottom: 16px;">
-                        <label class="form-label">Regulado?</label>
-                        <div style="display:flex; gap:16px; margin-top:4px">
-                            <label style="display:flex; align-items:center; gap:6px; cursor:pointer">
-                                <input type="radio" name="bk-regulated" value="yes" checked onclick="checkWarning()">
-                                Sim
-                            </label>
-                            <label style="display:flex; align-items:center; gap:6px; cursor:pointer">
-                                <input type="radio" name="bk-regulated" value="no" onclick="checkWarning()"> Não
-                            </label>
-                        </div>
-                    </div>
+                    
                     <div class="alert-box" id="warning-box">
                         <div class="alert-icon">
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                stroke-width="2">
-                                <path
-                                    d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z">
-                                </path>
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
                                 <line x1="12" y1="9" x2="12" y2="13"></line>
                                 <line x1="12" y1="17" x2="12.01" y2="17"></line>
                             </svg>
                         </div>
                         <div>
                             <div style="font-weight:700; margin-bottom:4px">Impacto na Governança</div>
-                            <div>Este agendamento excede a meta proporcional para este grupo.</div>
+                            <div id="warning-msg-text">Este agendamento excede a meta proporcional.</div>
                         </div>
                     </div>
                 </div>

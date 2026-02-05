@@ -83,8 +83,8 @@ function animateMetric(elementId, targetValue, isPercentage = false) {
         if (isNaN(startValue)) startValue = 0;
     }
 
-    if (startValue === targetValue) {
-        element.innerText = isPercentage ? targetValue.toFixed(1) + '%' : targetValue;
+    if (Math.abs(startValue - targetValue) < 0.1) {
+        element.innerText = isPercentage ? targetValue.toFixed(1) + '%' : Math.floor(targetValue);
         return;
     }
 
@@ -107,7 +107,7 @@ function animateMetric(elementId, targetValue, isPercentage = false) {
         if (progress < 1) {
             requestAnimationFrame(update);
         } else {
-            element.innerText = isPercentage ? targetValue.toFixed(1) + '%' : targetValue;
+            element.innerText = isPercentage ? targetValue.toFixed(1) + '%' : Math.floor(targetValue);
         }
     }
 
@@ -123,6 +123,99 @@ function animateSubMetric(elementId, val, groupTotal) {
     const finalText = `${pct.toFixed(1)}% (${val})`;
     
     element.innerText = finalText;
+}
+
+// --- NOVAS FUNÇÕES AUXILIARES DE PROCEDIMENTOS ---
+
+// Helper para ler/escrever os procedimentos do slot (compatível com JSON novo e String antiga)
+function getProceduresFromSlot(slot) {
+    if (!slot.procedure) return [];
+    
+    try {
+        const parsed = JSON.parse(slot.procedure);
+        if (Array.isArray(parsed)) return parsed;
+        return [{ name: slot.procedure, regulated: (slot.regulated === true || slot.regulated === "TRUE" || slot.regulated === "YES") }];
+    } catch (e) {
+        // Fallback: é uma string antiga
+        return [{ name: slot.procedure, regulated: (slot.regulated === true || slot.regulated === "TRUE" || slot.regulated === "YES") }];
+    }
+}
+
+// --- FUNÇÃO CENTRAL DE CONTROLE DE CONTRATO ---
+function handleContractChange() {
+    const contract = document.getElementById('bk-contract').value;
+    const isMunicipal = CONTRACTS.MUNICIPAL.includes(contract);
+    const checkBoxes = document.querySelectorAll('.proc-reg-check');
+
+    checkBoxes.forEach(cb => {
+        const label = cb.parentElement;
+        
+        if (isMunicipal) {
+            // REGRA: Se municipal, desmarca e desabilita (cinza)
+            cb.checked = false;
+            cb.disabled = true;
+            label.style.opacity = '0.5';
+            label.style.cursor = 'not-allowed';
+            label.title = "Não aplicável para contratos municipais";
+        } else {
+            // Se não for municipal, habilita
+            cb.disabled = false;
+            label.style.opacity = '1';
+            label.style.cursor = 'pointer';
+            label.title = "Marcar se é Regulado";
+        }
+    });
+
+    checkWarning(); // Recalcula KPIs
+}
+
+// Adiciona uma linha visual no modal
+function addProcedureRow(name = '', isRegulated = true) {
+    const container = document.getElementById('procedures-container');
+    const id = Date.now() + Math.random().toString(16).slice(2);
+    
+    // Verifica estado atual do contrato para criar o checkbox já correto
+    const contract = document.getElementById('bk-contract').value;
+    const isMunicipal = CONTRACTS.MUNICIPAL.includes(contract);
+
+    let checkState = isRegulated ? 'checked' : '';
+    let disabledAttr = '';
+    let opacityStyle = '1';
+    let cursorStyle = 'pointer';
+
+    if (isMunicipal) {
+        checkState = ''; // Força desmarcado
+        disabledAttr = 'disabled';
+        opacityStyle = '0.5';
+        cursorStyle = 'not-allowed';
+    }
+    
+    const row = document.createElement('div');
+    row.className = 'procedure-row';
+    row.id = `proc-row-${id}`;
+    row.style.cssText = "display:flex; gap:8px; align-items:center;";
+    
+    // AQUI: Alterado o placeholder para "Ex: Faco..."
+    row.innerHTML = `
+        <input type="text" class="form-input proc-name-input" placeholder="Ex: Faco, Lio..." value="${name}" style="flex:1;">
+        
+        <label style="display:flex; align-items:center; gap:4px; font-size:0.8rem; cursor:${cursorStyle}; background:white; padding:8px; border:1px solid #cbd5e1; border-radius:8px; opacity:${opacityStyle}" title="Marcar se é Regulado">
+            <input type="checkbox" class="proc-reg-check" ${checkState} ${disabledAttr} onchange="checkWarning()">
+            Regulado
+        </label>
+
+        <button type="button" class="btn btn-danger" onclick="removeProcedureRow('${id}')" style="padding:8px; border-radius:8px;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+    `;
+    container.appendChild(row);
+    if(name === '') checkWarning();
+}
+
+function removeProcedureRow(id) {
+    const row = document.getElementById(`proc-row-${id}`);
+    if(row) row.remove();
+    checkWarning();
 }
 
 // --- LÓGICA DE PRÉ-PROCESSAMENTO DO CACHE ---
@@ -150,17 +243,34 @@ function recalculateMonthCache(monthKey) {
                     const c = s.contract ? s.contract.toUpperCase() : null;
                     if (!c) return;
 
+                    const procs = getProceduresFromSlot(s);
+
                     if (CONTRACTS.MUNICIPAL.includes(c)) {
-                        counts.Municipal.Total++;
-                        if (counts.Municipal[c] !== undefined) counts.Municipal[c]++;
+                        const countToAdd = procs.length > 0 ? procs.length : 1;
+                        counts.Municipal.Total += countToAdd;
+                        if (counts.Municipal[c] !== undefined) counts.Municipal[c] += countToAdd;
+
                     } else if (CONTRACTS.LOCALS.includes(c)) {
-                        let isReg = (s.regulated === true || s.regulated === "TRUE" || s.regulated === "YES");
-                        if (isReg) {
-                            counts.Regulado.Total++;
-                            if (counts.Regulado[c] !== undefined) counts.Regulado[c]++;
+                        if (procs.length > 0) {
+                            procs.forEach(p => {
+                                if (p.regulated) {
+                                    counts.Regulado.Total++;
+                                    if (counts.Regulado[c] !== undefined) counts.Regulado[c]++;
+                                } else {
+                                    counts.Interno.Total++;
+                                    if (counts.Interno[c] !== undefined) counts.Interno[c]++;
+                                }
+                            });
                         } else {
-                            counts.Interno.Total++;
-                            if (counts.Interno[c] !== undefined) counts.Interno[c]++;
+                            // Fallback
+                            let isReg = (s.regulated === true || s.regulated === "TRUE" || s.regulated === "YES");
+                            if (isReg) {
+                                counts.Regulado.Total++;
+                                if (counts.Regulado[c] !== undefined) counts.Regulado[c]++;
+                            } else {
+                                counts.Interno.Total++;
+                                if (counts.Interno[c] !== undefined) counts.Interno[c]++;
+                            }
                         }
                     }
                 }
@@ -311,7 +421,6 @@ async function syncMonthData(baseDateKey) {
         if(!DASH_CACHE[monthKey]) recalculateMonthCache(monthKey);
         DASH_CACHE[monthKey].loaded = true;
 
-        // Atualiza a tela assim que os dados chegarem
         if (selectedDateKey.startsWith(monthKey)) {
             renderSlotsList();
             if (currentView === 'admin') renderAdminTable();
@@ -451,7 +560,7 @@ function executeSwitch(view) {
     }
 }
 
-// --- INICIALIZAÇÃO OTIMIZADA (COM TELA DE CARREGAMENTO) ---
+// --- INICIALIZAÇÃO OTIMIZADA ---
 async function initData() {
     fetchValidTokens();
     
@@ -462,7 +571,6 @@ async function initData() {
     if (dashPicker) {
         dashPicker.value = selectedDateKey.substring(0, 7);
         dashPicker.addEventListener('change', (e) => {
-            // Toast removido conforme solicitado
             syncMonthData(e.target.value); 
         });
     }
@@ -470,16 +578,12 @@ async function initData() {
     // Await para garantir que o splash screen cubra o carregamento inicial
     await syncMonthData(selectedDateKey);
 
-    // Remove o Splash Screen com fade-out suave
     const splash = document.getElementById('app-splash-screen');
     if (splash) {
         splash.style.opacity = '0';
-        setTimeout(() => {
-            splash.remove();
-        }, 500); // Aguarda a transição CSS antes de remover do DOM
+        setTimeout(() => { splash.remove(); }, 500);
     }
 
-    // Renderiza o que tem
     renderSlotsList();
     updateKPIs();
 }
@@ -620,11 +724,21 @@ function renderSlotsList() {
             </div>
             <div style="font-size:0.8rem; color:var(--text-secondary); margin-top:4px;">${slot.location || 'Iputinga'}</div>
             <div style="font-size:0.8rem; color:var(--text-secondary); margin-top:2px;">${doctorName}</div>
-            <div style="font-size:0.75rem; color:var(--text-light); margin-top:2px;">${slot.specialty || '-'}</div>
         `;
 
         if (slot.status === 'OCUPADO') {
+            const procs = getProceduresFromSlot(slot);
+            let procDisplay = '-';
+            if(procs.length === 1) {
+                procDisplay = procs[0].name;
+            } else if (procs.length > 1) {
+                procDisplay = `${procs.length} Procedimentos`;
+            } else {
+                procDisplay = slot.specialty || '-';
+            }
+
             mainInfo += `
+            <div style="font-size:0.75rem; color:var(--text-light); margin-top:2px; font-weight:600; color:#0284c7">${procDisplay}</div>
             <div class="slot-detail-box">
                 <div class="detail-patient">${slot.patient}</div>
                 <div style="font-size:0.75rem; color:var(--text-light)">Pront: ${slot.record || '?'}</div>
@@ -634,7 +748,10 @@ function renderSlotsList() {
                 ${slot.createdBy ? 'Agendado por: ' + slot.createdBy : ''}
             </div>
             `;
+        } else {
+             mainInfo += `<div style="font-size:0.75rem; color:var(--text-light); margin-top:2px;">${slot.specialty || '-'}</div>`;
         }
+        
         mainInfo += `</div>`;
 
         item.innerHTML = `
@@ -690,8 +807,8 @@ function bulkCreateSlots() {
             room: room || '1',
             location: location,
             doctor: doctor,
-            specialty: group,
-            procedure: group,
+            specialty: group, // Aqui definimos a ESPECIALIDADE (categoria)
+            procedure: group, // Inicialmente procedure = group (compatibilidade)
             createdBy: currentUserToken
         });
     }
@@ -749,6 +866,11 @@ function renderAdminTable() {
         const dateFmt = `${slot.date.split('-')[2]}/${slot.date.split('-')[1]}`;
         const isChecked = currentlyChecked.includes(String(slot.id)) ? 'checked' : '';
 
+        let specDisplay = slot.specialty;
+        const procs = getProceduresFromSlot(slot);
+        if(procs.length > 1) specDisplay = `${procs.length} Procs`;
+        else if (procs.length === 1) specDisplay = procs[0].name;
+
         tr.innerHTML = `
             <td style="text-align:center">
                 <input type="checkbox" class="slot-checkbox" value="${slot.id}" ${isChecked} onchange="updateDeleteButton()">
@@ -758,7 +880,7 @@ function renderAdminTable() {
             <td>${slot.room}</td>
             <td>
                 <div style="font-weight:600; font-size:0.85rem">${slot.doctor}</div>
-                <div style="font-size:0.75rem; color:var(--text-light)">${slot.specialty}</div>
+                <div style="font-size:0.75rem; color:var(--text-light)">${specDisplay}</div>
             </td>
             <td>${statusHtml}</td>
             <td style="text-align:center">
@@ -888,7 +1010,7 @@ function deleteSlot(id) {
     });
 }
 
-// --- MODAL DE AGENDAMENTO ---
+// --- MODAL DE AGENDAMENTO E LOGICA DE PROCEDIMENTOS ---
 
 function openBookingModal(slot, key, isEdit = false) {
     const modal = document.getElementById('booking-modal');
@@ -896,20 +1018,31 @@ function openBookingModal(slot, key, isEdit = false) {
     document.getElementById('bk-record').value = slot.record || '';
     document.getElementById('bk-patient').value = slot.patient || '';
     document.getElementById('bk-contract').value = slot.contract || '';
-    document.getElementById('bk-procedure').value = slot.procedure || slot.specialty || '';
     document.getElementById('bk-detail').value = slot.detail || '';
     document.getElementById('bk-eye').value = slot.eye || '';
+    
+    // CARREGA A ESPECIALIDADE (CATEGORIA DA VAGA) NO CAMPO FIXO
+    document.getElementById('bk-specialty').value = slot.specialty || ''; 
+
     document.getElementById('selected-slot-id').value = slot.id;
 
-    let isReg = slot.regulated;
-    if (isReg === undefined || isReg === null) isReg = true;
-    if (slot.status === 'LIVRE') isReg = true;
-
-    const radios = document.getElementsByName('bk-regulated');
-    const radioVal = isReg ? 'yes' : 'no';
-    for (const r of radios) { 
-        if (r.value === radioVal) r.checked = true; 
+    // --- POPULAR PROCEDIMENTOS ---
+    const container = document.getElementById('procedures-container');
+    container.innerHTML = '';
+    
+    const procs = getProceduresFromSlot(slot);
+    
+    // ATUALIZAÇÃO: Se a vaga estiver LIVRE, ignoramos o procedimento padrão (ex: CATARATA)
+    // e mostramos uma linha vazia para o usuário digitar.
+    if (slot.status === 'LIVRE') {
+        addProcedureRow('', true); 
+    } else {
+        if(procs.length === 0) addProcedureRow('', true);
+        else procs.forEach(p => addProcedureRow(p.name, p.regulated));
     }
+    
+    // Fallback de segurança
+    if (container.children.length === 0) addProcedureRow('', true);
 
     const dateFmt = `${slot.date.split('-')[2]}/${slot.date.split('-')[1]}`;
     document.getElementById('modal-slot-info').innerText = `${dateFmt} • ${slot.time} • ${slot.doctor}`;
@@ -918,13 +1051,15 @@ function openBookingModal(slot, key, isEdit = false) {
 
     const btnArea = document.getElementById('action-buttons-area');
     if (isEdit) {
-        btnArea.innerHTML = `<button class="btn btn-danger" onclick="cancelSlotBooking()">Liberar Vaga</button>`;
+        btnArea.innerHTML = `<button class="btn btn-danger" onclick="cancelSlotBooking()">Liberar Vaga</button> <button class="btn btn-primary" onclick="confirmBookingFromModal()">Salvar Alterações</button>`;
     } else {
         btnArea.innerHTML = `<button class="btn btn-primary" onclick="confirmBookingFromModal()">Confirmar</button>`;
     }
 
     modal.classList.add('open');
-    checkWarning();
+    
+    // Aplica regra de contrato (bloqueia checkboxes se for municipal)
+    handleContractChange();
 }
 
 function closeModal() { document.getElementById('booking-modal').classList.remove('open'); }
@@ -932,53 +1067,59 @@ function closeModal() { document.getElementById('booking-modal').classList.remov
 function checkWarning() {
     const contract = document.getElementById('bk-contract').value;
     const warningBox = document.getElementById('warning-box');
-    const radios = document.getElementsByName('bk-regulated');
-    const isMunicipal = CONTRACTS.MUNICIPAL.includes(contract);
+    const msgText = document.getElementById('warning-msg-text');
     
-    for (const r of radios) r.disabled = isMunicipal;
-
-    if (!contract || isMunicipal) {
+    if (!contract || CONTRACTS.MUNICIPAL.includes(contract)) {
         warningBox.style.display = 'none';
         return;
     }
 
-    // Projeção Rápida
-    let isNewBookingRegulated = true;
-    for (const r of radios) { if (r.checked && r.value === 'no') isNewBookingRegulated = false; }
+    let newReg = 0;
+    let newInt = 0;
+    document.querySelectorAll('.procedure-row').forEach(row => {
+        const nameInput = row.querySelector('.proc-name-input');
+        if(nameInput && nameInput.value.trim()) {
+            const isReg = row.querySelector('.proc-reg-check').checked;
+            if(isReg) newReg++; else newInt++;
+        }
+    });
+
+    if (newReg === 0 && newInt === 0) newReg = 1; 
 
     const monthKey = selectedDateKey.substring(0,7);
     const stats = DASH_CACHE[monthKey];
     
     if(!stats || stats.total === 0) return;
 
-    // Pega contagens atuais do cache
-    let countReg = stats.counts.Regulado.Total;
-    let countInt = stats.counts.Interno.Total;
-    const totalSlots = stats.total;
+    let currentTotalReg = stats.counts.Regulado.Total;
+    let currentTotalInt = stats.counts.Interno.Total;
+    
+    let simTotalReg = currentTotalReg + newReg;
+    let simTotalInt = currentTotalInt + newInt;
+    let simTotal = simTotalReg + simTotalInt;
+    
+    if(simTotal === 0) simTotal = 1;
 
-    if (isNewBookingRegulated) countReg++;
-    else countInt++;
-
-    const pctReg = (countReg / totalSlots) * 100;
-    const pctInt = (countInt / totalSlots) * 100;
+    const pctReg = (simTotalReg / simTotal) * 100;
+    const pctInt = (simTotalInt / simTotal) * 100;
 
     let showWarning = false;
     let msg = "";
 
-    if (isNewBookingRegulated && pctReg > 60) {
+    if (newInt > 0 && pctInt > 40) {
         showWarning = true;
-        msg = `Atenção: Regulados atingirão <b>${pctReg.toFixed(1)}%</b> (Meta: 60%)`;
-    } else if (!isNewBookingRegulated && pctInt > 40) {
+        msg = `Atenção: Procedimentos Internos atingirão <b>${pctInt.toFixed(1)}%</b> (Limite: 40%)`;
+    } else if (newInt > 0 && pctReg < 60) {
         showWarning = true;
-        msg = `Atenção: Internos atingirão <b>${pctInt.toFixed(1)}%</b> (Meta: 40%)`;
+        msg = `Atenção: Regulados cairão para <b>${pctReg.toFixed(1)}%</b> (Meta: >60%)`;
     }
 
     if (showWarning) {
         warningBox.style.display = 'flex';
-        if(warningBox.querySelector('div:last-child > div:last-child')) {
-             warningBox.querySelector('div:last-child > div:last-child').innerHTML = msg;
-        } else {
+        if(msgText) msgText.innerHTML = msg;
+        else {
              const div = document.createElement('div');
+             div.id = 'warning-msg-text';
              div.innerHTML = msg;
              warningBox.appendChild(div);
         }
@@ -992,29 +1133,35 @@ function confirmBookingFromModal() {
     const record = document.getElementById('bk-record').value;
     const patient = document.getElementById('bk-patient').value;
     const contract = document.getElementById('bk-contract').value;
-    const procedure = document.getElementById('bk-procedure').value;
     const detail = document.getElementById('bk-detail').value;
     const eye = document.getElementById('bk-eye').value;
 
-    if (!patient || !contract || !record || !detail || !eye) {
-        return showToast('Preencha todos os campos.', 'error');
+    const procRows = document.querySelectorAll('.procedure-row');
+    const proceduresList = [];
+
+    procRows.forEach(row => {
+        const name = row.querySelector('.proc-name-input').value.trim();
+        const isReg = row.querySelector('.proc-reg-check').checked;
+        if(name) {
+            proceduresList.push({ name: name, regulated: isReg });
+        }
+    });
+
+    if (!patient || !contract || !record || !eye || proceduresList.length === 0) {
+        return showToast('Preencha os campos obrigatórios e ao menos 1 procedimento.', 'error');
     }
 
-    const radios = document.getElementsByName('bk-regulated');
-    let isRegulated = true;
-    const isMunicipal = CONTRACTS.MUNICIPAL.includes(contract);
-
-    if (isMunicipal) {
-        isRegulated = null; 
-    } else {
-        for (const r of radios) { if (r.checked && r.value === 'no') isRegulated = false; }
-    }
+    const procedureJSON = JSON.stringify(proceduresList);
+    const mainRegulatedStatus = proceduresList.some(p => p.regulated);
 
     const summary = `
         <div style="text-align:left; background:#f8fafc; padding:16px; border-radius:8px; font-size:0.9rem; border:1px solid #e2e8f0">
             <div><b>Paciente:</b> ${patient}</div>
             <div><b>Contrato:</b> ${contract}</div>
-            <div><b>Regulado:</b> ${isRegulated === true ? 'SIM' : (isRegulated === false ? 'NÃO' : '-')}</div>
+            <div style="margin-top:8px; font-weight:600; border-top:1px dashed #ccc; padding-top:4px">Procedimentos (${proceduresList.length}):</div>
+            <ul style="margin:0; padding-left:20px; font-size:0.85rem">
+                ${proceduresList.map(p => `<li>${p.name} (${p.regulated ? 'Regulado' : 'Interno'})</li>`).join('')}
+            </ul>
         </div>
         <div style="margin-top:16px; font-weight:600">Confirmar?</div>
     `;
@@ -1030,8 +1177,8 @@ function confirmBookingFromModal() {
                         patient: patient,
                         record: record,
                         contract: contract,
-                        regulated: isRegulated,
-                        procedure: procedure,
+                        regulated: mainRegulatedStatus,
+                        procedure: procedureJSON, 
                         detail: detail,
                         eye: eye,
                         createdBy: currentUserToken
@@ -1053,8 +1200,8 @@ function confirmBookingFromModal() {
                 patient: patient,
                 record: record,
                 contract: contract,
-                regulated: isRegulated,
-                procedure: procedure,
+                regulated: mainRegulatedStatus,
+                procedure: procedureJSON,
                 detail: detail,
                 eye: eye,
                 createdBy: currentUserToken
@@ -1070,7 +1217,7 @@ function confirmBookingFromModal() {
 }
 
 function cancelSlotBooking() {
-    showMessageModal('Liberar Vaga', 'Remover paciente?', 'confirm', () => {
+    showMessageModal('Liberar Vaga', 'Remover paciente e procedimentos?', 'confirm', () => {
         requestToken(async () => {
             const id = document.getElementById('selected-slot-id').value;
             
@@ -1106,7 +1253,7 @@ function cancelSlotBooking() {
     });
 }
 
-// --- KPI ---
+// --- KPI: AJUSTADA PARA CONTAR PROCEDIMENTOS ---
 function updateKPIs() {
     const picker = document.getElementById('dashboard-month-picker');
     let targetMonth = selectedDateKey.substring(0, 7);
@@ -1130,15 +1277,26 @@ function updateKPIs() {
 
     const { total, occupied, counts } = stats;
 
-    const pctOccupied = total > 0 ? (occupied / total) * 100 : 0;
-    const pctIdle = total > 0 ? ((total - occupied) / total) * 100 : 0;
-
-    animateMetric('glb-total', total);
-    animateMetric('glb-occupied', pctOccupied, true);
-    animateMetric('glb-idle', pctIdle, true);
-
+    const totalMunicipal = counts.Municipal.Total;
     const totalReg = counts.Regulado.Total;
-    const pctRegGlobal = total > 0 ? (totalReg / total) * 100 : 0;
+    const totalInt = counts.Interno.Total;
+    
+    // Universo GOV = Soma de procedimentos estaduais/locais
+    const universeGov = totalReg + totalInt;
+    const validBaseGov = universeGov > 0 ? universeGov : 1;
+
+    // Ocupação Global (Ainda baseada em vagas físicas)
+    const realIdleCount = total - occupied;
+    
+    animateMetric('glb-total', total);
+    
+    const pctOccupiedPhysical = total > 0 ? (occupied / total) * 100 : 0;
+    animateMetric('glb-occupied', pctOccupiedPhysical, true);
+    
+    animateMetric('glb-idle', realIdleCount);
+
+    // --- KPIS GOV (Baseado em Procedimentos) ---
+    const pctRegGlobal = (totalReg / validBaseGov) * 100;
     
     animateMetric('kpi-60-val', pctRegGlobal, true);
     document.getElementById('prog-60').style.width = Math.min(pctRegGlobal, 100) + '%';
@@ -1147,8 +1305,7 @@ function updateKPIs() {
     animateSubMetric('stat-serra', counts.Regulado.SERRA, totalReg);
     animateSubMetric('stat-salgueiro', counts.Regulado.SALGUEIRO, totalReg);
 
-    const totalInt = counts.Interno.Total;
-    const pctIntGlobal = total > 0 ? (totalInt / total) * 100 : 0;
+    const pctIntGlobal = (totalInt / validBaseGov) * 100;
 
     animateMetric('kpi-40-val', pctIntGlobal, true);
     document.getElementById('prog-40').style.width = Math.min(pctIntGlobal, 100) + '%';
@@ -1162,7 +1319,7 @@ function updateKPIs() {
     animateMetric('kpi-mun-val', counts.Municipal.Total);
 }
 
-// --- PDF ---
+// --- PDF: TAMBÉM AJUSTADO ---
 function generateDashboardPDF() {
     const monthVal = document.getElementById('dashboard-month-picker').value || 'Geral';
     
@@ -1174,11 +1331,18 @@ function generateDashboardPDF() {
     
     const { total, occupied, counts } = stats;
     
-    const pctOcup = total > 0 ? (occupied / total * 100).toFixed(1) : "0.0";
+    // Cálculos
+    const totalMunicipal = counts.Municipal.Total;
     const totalReg = counts.Regulado.Total;
     const totalInt = counts.Interno.Total;
-    const pctRegGlobal = total > 0 ? (totalReg / total * 100).toFixed(1) : "0.0";
-    const pctIntGlobal = total > 0 ? (totalInt / total * 100).toFixed(1) : "0.0";
+    const universeGov = totalReg + totalInt;
+    const validBase = universeGov > 0 ? universeGov : 1;
+
+    const realIdleCount = total - occupied;
+    const pctOccupied = total > 0 ? (occupied / total * 100).toFixed(1) : "0.0";
+    
+    const pctRegGlobal = (totalReg / validBase * 100).toFixed(1);
+    const pctIntGlobal = (totalInt / validBase * 100).toFixed(1);
 
     const calcSubPct = (val, groupTot) => groupTot > 0 ? (val / groupTot * 100).toFixed(1) : "0.0";
 
@@ -1196,23 +1360,27 @@ function generateDashboardPDF() {
             <div style="border-bottom: 2px solid #0284c7; padding-bottom: 10px; margin-bottom: 20px;">
                 <h1 style="color: #1e293b; font-size: 24px; margin: 0;">Relatório de Governança Cirúrgica</h1>
                 <div style="color: #64748b; font-size: 14px; margin-top: 5px;">Período de Referência: ${monthVal}</div>
+                <div style="color: #dc2626; font-size: 11px; margin-top: 2px;">*Metas calculadas sobre total de PROCEDIMENTOS (não vagas)</div>
             </div>
 
             <div style="background: #f8fafc; padding: 15px; border-radius: 8px; margin-bottom: 30px;">
-                <h3 style="margin-top:0; color:#475569; font-size:16px; border-bottom:1px solid #cbd5e1; padding-bottom:5px;">Visão Global</h3>
+                <h3 style="margin-top:0; color:#475569; font-size:16px; border-bottom:1px solid #cbd5e1; padding-bottom:5px;">Visão Geral</h3>
                 <table style="width: 100%; border-collapse: collapse;">
                     <tr>
-                        <td style="padding: 10px; border-bottom: 1px solid #e2e8f0;"><strong>Total de Vagas:</strong> ${total}</td>
-                        <td style="padding: 10px; border-bottom: 1px solid #e2e8f0;"><strong>Ocupação:</strong> ${pctOcup}%</td>
-                        <td style="padding: 10px; border-bottom: 1px solid #e2e8f0;"><strong>Ociosidade:</strong> ${(100 - parseFloat(pctOcup)).toFixed(1)}%</td>
+                        <td style="padding: 10px; border-bottom: 1px solid #e2e8f0;"><strong>Capacidade Física (Vagas):</strong> ${total}</td>
+                         <td style="padding: 10px; border-bottom: 1px solid #e2e8f0;"><strong>Vagas Livres:</strong> ${realIdleCount}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 10px; border-bottom: 1px solid #e2e8f0;"><strong>Taxa Ocupação Física:</strong> ${pctOccupied}%</td>
+                        <td style="padding: 10px; border-bottom: 1px solid #e2e8f0;"><strong>Total Procedimentos Gov:</strong> ${universeGov}</td>
                     </tr>
                 </table>
             </div>
 
             <div style="display:flex; gap:20px;">
                 <div style="flex:1;">
-                    <h3 style="color:#7c3aed; font-size:16px; border-bottom:1px solid #ddd; padding-bottom:5px;">Contratos Regulados (Meta 60%)</h3>
-                    <div style="font-size:24px; font-weight:bold; color:#7c3aed; margin-bottom:10px;">${pctRegGlobal}% <span style="font-size:12px; color:#666">do total</span></div>
+                    <h3 style="color:#7c3aed; font-size:16px; border-bottom:1px solid #ddd; padding-bottom:5px;">Procedimentos Regulados (Meta 60%)</h3>
+                    <div style="font-size:24px; font-weight:bold; color:#7c3aed; margin-bottom:10px;">${pctRegGlobal}% <span style="font-size:12px; color:#666">dos procs</span></div>
                     <table style="width: 100%; border: 1px solid #e2e8f0; font-size:13px;">
                         <tr style="background:#f1f5f9;"><th style="padding:8px; text-align:left;">Unidade</th><th style="padding:8px; text-align:right;">% Grupo (Qtd)</th></tr>
                         <tr><td style="padding:8px; border-bottom:1px solid #eee;">Estado</td><td style="padding:8px; text-align:right;">${regEstadoPct}% (${counts.Regulado.ESTADO})</td></tr>
@@ -1223,8 +1391,8 @@ function generateDashboardPDF() {
                 </div>
 
                 <div style="flex:1;">
-                    <h3 style="color:#059669; font-size:16px; border-bottom:1px solid #ddd; padding-bottom:5px;">Contratos Internos (Meta 40%)</h3>
-                    <div style="font-size:24px; font-weight:bold; color:#059669; margin-bottom:10px;">${pctIntGlobal}% <span style="font-size:12px; color:#666">do total</span></div>
+                    <h3 style="color:#059669; font-size:16px; border-bottom:1px solid #ddd; padding-bottom:5px;">Procedimentos Internos (Meta 40%)</h3>
+                    <div style="font-size:24px; font-weight:bold; color:#059669; margin-bottom:10px;">${pctIntGlobal}% <span style="font-size:12px; color:#666">dos procs</span></div>
                     <table style="width: 100%; border: 1px solid #e2e8f0; font-size:13px;">
                         <tr style="background:#f1f5f9;"><th style="padding:8px; text-align:left;">Unidade</th><th style="padding:8px; text-align:right;">% Grupo (Qtd)</th></tr>
                         <tr><td style="padding:8px; border-bottom:1px solid #eee;">Estado</td><td style="padding:8px; text-align:right;">${intEstadoPct}% (${counts.Interno.ESTADO})</td></tr>
@@ -1236,7 +1404,7 @@ function generateDashboardPDF() {
             </div>
 
             <div style="margin-top: 30px;">
-                 <h3 style="color:#64748b; font-size:16px; border-bottom:1px solid #ddd; padding-bottom:5px;">Municípios (Sem Meta)</h3>
+                 <h3 style="color:#64748b; font-size:16px; border-bottom:1px solid #ddd; padding-bottom:5px;">Municípios (Procedimentos Realizados)</h3>
                  <table style="width: 100%; border: 1px solid #e2e8f0; font-size:13px;">
                     <tr style="background:#f1f5f9;"><th style="padding:8px; text-align:left;">Município</th><th style="padding:8px; text-align:right;">Qtd</th></tr>
                     <tr><td style="padding:8px; border-bottom:1px solid #eee;">Recife</td><td style="padding:8px; text-align:right;">${counts.Municipal.RECIFE}</td></tr>
