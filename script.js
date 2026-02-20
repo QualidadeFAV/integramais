@@ -3,7 +3,7 @@ const API_URL = "https://script.google.com/macros/s/AKfycbyA8a8PaPz7T4lkx6NlQfeX
 const API_TOKEN = "fav-2026-seguro-123";
 
 // Hash Base64 de "110423"
-const PIN_HASH = "MTEwNDIz"; 
+const PIN_HASH = "MTEwNDIz";
 
 /* --- ESTADO GLOBAL --- */
 let tasks = [];
@@ -65,7 +65,7 @@ window.onload = () => {
 
     const pinInput = document.getElementById('pinInput');
     if (pinInput) {
-        pinInput.addEventListener('keyup', function(event) {
+        pinInput.addEventListener('keyup', function (event) {
             if (event.key === "Enter") validarPin();
         });
     }
@@ -81,7 +81,7 @@ window.onload = () => {
         if (scrollPosition >= threshold) {
             // Se ainda existem itens na lista filtrada que não foram renderizados
             if (itemsRendered < currentFilteredTasks.length) {
-                renderNextBatch(true); 
+                renderNextBatch(true);
             }
         }
     });
@@ -145,7 +145,7 @@ async function carregarDados(silencioso = false) {
         const d = await r.json();
 
         if (d.result === 'error') throw new Error(d.message);
-        
+
         const lista = Array.isArray(d) ? d : (d.data ? d.data : []);
 
         tasks = lista.map(t => {
@@ -165,8 +165,8 @@ async function carregarDados(silencioso = false) {
                 steps: Array.isArray(stepsRaw) ? stepsRaw : [],
                 attachments: t[k('attachments')] || "",
                 origin: t[k('origin')] || "",
-                unit: t[k('unit')] || "",
                 resp: t[k('resp')] || "",
+                problem: t[k('problem')] || t[k('desc')] || "",
                 why: t[k('why')] || "",
                 how: t[k('how')] || "",
                 cost: t[k('cost')] || "",
@@ -287,15 +287,15 @@ function salvarTask() {
             method: "POST",
             body: JSON.stringify(payload)
         })
-        .then(r => r.json())
-        .then(d => {
-            if (d.result === 'success' || d.result === 'updated' || d.result === 'created') {
-                carregarDados(true);
-            } else {
-                showToast("Erro no servidor: " + (d.message || d.error), "error");
-            }
-        })
-        .catch(e => console.log("Erro rede ao salvar", e));
+            .then(r => r.json())
+            .then(d => {
+                if (d.result === 'success' || d.result === 'updated' || d.result === 'created') {
+                    carregarDados(true);
+                } else {
+                    showToast("Erro no servidor: " + (d.message || d.error), "error");
+                }
+            })
+            .catch(e => console.log("Erro rede ao salvar", e));
     }, 100);
 }
 
@@ -309,7 +309,7 @@ function tentarDeletar() {
 function confirmarExclusao() {
     const id = document.getElementById('taskId').value;
     if (!id) return;
-    
+
     document.getElementById('deleteModal').classList.remove('active');
     setTimeout(() => document.getElementById('deleteModal').style.display = 'none', 300);
     fecharModal(true);
@@ -333,8 +333,8 @@ function confirmarExclusao() {
                 token: API_TOKEN
             })
         })
-        .then(r => r.json())
-        .catch(e => carregarDados(true));
+            .then(r => r.json())
+            .catch(e => carregarDados(true));
     }, 50);
 }
 
@@ -400,7 +400,7 @@ function selectModalOption(type, value, label, e) {
     }
 }
 
-document.addEventListener('click', function(e) {
+document.addEventListener('click', function (e) {
     if (!e.target.closest('.custom-dropdown-modal')) {
         document.querySelectorAll('.custom-dropdown-modal').forEach(d => d.classList.remove('active'));
     }
@@ -448,7 +448,7 @@ function dataParaInput(isoStr) {
 
 function formatarNomeProprio(texto) {
     if (!texto || typeof texto !== 'string') return "";
-    return texto.trim().replace(/\s+/g, ' ').toLowerCase().replace(/(?:^|\s)\S/g, function(a) { return a.toUpperCase(); });
+    return texto.trim().replace(/\s+/g, ' ').toLowerCase().replace(/(?:^|\s)\S/g, function (a) { return a.toUpperCase(); });
 }
 
 function showToast(msg, type = 'success') {
@@ -470,7 +470,7 @@ function normalizarTexto(t) {
     return t.toString().toLowerCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 }
 
-fileInput.addEventListener('change', function(e) {
+fileInput.addEventListener('change', function (e) {
     if (this.files) {
         Array.from(this.files).forEach(f => {
             const r = new FileReader();
@@ -705,7 +705,7 @@ function renderNextBatch(animar = true) {
         const c = document.createElement('div');
         c.className = `card ${animar ? 'animate-in' : 'no-anim'} ${isLate ? 'is-late' : ''} ${isConc ? 'is-concluded' : ''}`;
         c.onclick = () => abrirModal(t.id, event);
-        
+
         // Animação apenas nos primeiros elementos para não travar
         if (animar && globalIndex < 10) c.style.animationDelay = `${i * 0.05}s`;
 
@@ -734,7 +734,7 @@ function renderNextBatch(animar = true) {
 
     grid.appendChild(fragment);
     itemsRendered += nextBatch.length;
-    
+
     // Pequeno delay para liberar a thread
     setTimeout(() => { isRendering = false; }, 50);
 }
