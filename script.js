@@ -761,6 +761,7 @@ async function buscarFoto(nome) {
                     const img = document.createElement('img');
                     img.src = data.url;
                     img.className = 'modal-avatar-big';
+                    wrapper.innerHTML = ''; // Limpa qualquer texto/bolinha residual
                     wrapper.appendChild(img);
                 }
             });
@@ -951,9 +952,10 @@ async function atualizarAvatarsModal(valorInput) {
             div.innerText = n[0].toUpperCase();
             wrapper.appendChild(div);
             container.appendChild(wrapper);
+
             buscarFoto(n).then(url => {
                 if (url) {
-                    div.remove();
+                    wrapper.innerHTML = ''; // Limpa a bolinha com inicial para evitar foto dupla
                     const img = document.createElement('img');
                     img.src = url;
                     img.className = 'modal-avatar-big';
